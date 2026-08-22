@@ -85,19 +85,19 @@ function render() {
   } else if (state === 'connecting') {
     stage.innerHTML = page('CONNECTING', 'Finding the<br>giant button…', 'Select the Nano’s COM port. It may reset once connected.');
   } else if (testMode === 'flappy' && state === 'ready') {
-    stage.innerHTML = '<p class="eyebrow">FLAPPY BIRD</p><h1>Button<br>Bird</h1><p>Ready? Press the giant button to start. Every later press makes the bird flap.</p><canvas class="flappy-game" id="flappy-game" width="420" height="620" aria-label="Flappy Bird controlled by the giant button"></canvas>';
+    stage.innerHTML = '<p class="eyebrow">FLAPPY BIRD</p><h1>Button<br>Bird</h1><p id="flappy-hint">Choose Start, then use the giant button to flap.</p><div class="button-row"><button class="primary" id="start-round">Start Flappy Bird</button></div><canvas class="flappy-game" id="flappy-game" width="420" height="620" aria-label="Flappy Bird controlled by the giant button"></canvas>';
     startFlappy();
   } else if (state === 'ready') {
     stage.innerHTML = testMode === 'cps'
-      ? page('CPS TEST', 'Ready to<br>start?', `Press the giant button to begin the ${SETTINGS.cpsDurationSeconds}-second test, then keep pressing as fast as you can.`)
-      : page('REACTION TIME', 'Ready to<br>start?', 'Press the giant button to begin. Release it, wait for green GO, then press again as fast as you can.');
+      ? page('CPS TEST', 'Ready to<br>start?', `Choose Start to begin the ${SETTINGS.cpsDurationSeconds}-second test, then keep pressing the giant button as fast as you can.`, '<div class="button-row"><button class="primary" id="start-round">Start CPS test</button></div>')
+      : page('REACTION TIME', 'Ready to<br>start?', 'Choose Start. Release the giant button, wait for green GO, then press it as fast as you can.', '<div class="button-row"><button class="primary" id="start-round">Start reaction test</button></div>');
   } else if (state === 'waiting') {
     stage.innerHTML = page('WAIT FOR IT', 'Hold<br>steady.', 'Pressing now is a false start.');
   } else if (state === 'go') {
     stage.innerHTML = '<h1 class="go">GO!</h1>';
   } else if (state === 'result') {
     const last = trialResults.at(-1);
-    stage.innerHTML = `<p class="eyebrow">DONE · REACTION TIME</p><h1 class="result">${Math.round(last.reactionTimeMs)}<small> ms</small></h1><p>Your corrected result. Raw arrival: ${last.rawReactionTimeMs.toFixed(1)} ms · link correction: ${last.linkDelayMs.toFixed(2)} ms. Press the giant button to start again.</p>`;
+    stage.innerHTML = `<p class="eyebrow">DONE · REACTION TIME</p><h1 class="result">${Math.round(last.reactionTimeMs)}<small> ms</small></h1><p>Your corrected result. Raw arrival: ${last.rawReactionTimeMs.toFixed(1)} ms · link correction: ${last.linkDelayMs.toFixed(2)} ms.</p><div class="button-row"><button class="primary" id="start-round">Start another reaction test</button></div>`;
   } else if (state === 'cps-active') {
     const remaining = Math.max(0, (cpsEndsAt - performance.now()) / 1000);
     stage.innerHTML = `<p class="eyebrow">CPS TEST</p><h1 class="result">${cpsPresses}<small> clicks</small></h1><p>${remaining.toFixed(1)} seconds remaining · press as fast as you can</p>`;
@@ -105,7 +105,7 @@ function render() {
     const last = cpsResults.at(-1);
     const average = cpsResults.reduce((sum, row) => sum + row.cps, 0) / cpsResults.length;
     const best = Math.max(...cpsResults.map(row => row.cps));
-    stage.innerHTML = `<p class="eyebrow">DONE · CPS SUMMARY</p><h1 class="result">${last.cps.toFixed(1)}<small> CPS</small></h1><p><b>${last.clicks} clicks</b> in ${last.durationSeconds} seconds · session average: ${average.toFixed(1)} CPS · best: ${best.toFixed(1)} CPS. Press the giant button to start again.</p>`;
+    stage.innerHTML = `<p class="eyebrow">DONE · CPS SUMMARY</p><h1 class="result">${last.cps.toFixed(1)}<small> CPS</small></h1><p><b>${last.clicks} clicks</b> in ${last.durationSeconds} seconds · session average: ${average.toFixed(1)} CPS · best: ${best.toFixed(1)} CPS.</p><div class="button-row"><button class="primary" id="start-round">Start another CPS test</button></div>`;
   } else if (state === 'false-start') {
     stage.innerHTML = page('FALSE START', 'TOO<br>EARLY', 'Release the giant button, then press it once to start another attempt.');
   } else {
@@ -113,6 +113,7 @@ function render() {
   }
   document.querySelector('#connect-button')?.addEventListener('click', connectArduino);
   document.querySelector('#recover-button')?.addEventListener('click', connectArduino);
+  document.querySelector('#start-round')?.addEventListener('click', startSelectedRound);
   updatePanel();
 }
 
@@ -174,14 +175,19 @@ function receivedPress(arduinoMicros) {
   lastArduinoMicros = arduinoMicros;
   const now = performance.now();
   if (testMode === 'flappy' && state === 'ready') return flapFlappy();
-  if (testMode === 'reaction' && ['ready', 'result', 'false-start'].includes(state)) return startReaction();
-  if (testMode === 'cps' && ['ready', 'cps-result'].includes(state)) return startCpsTest(true);
   if (state === 'cps-active') { cpsPresses += 1; return render(); }
   if (state === 'waiting') { stopTimers(); recordReaction(now, arduinoMicros, true); return setState('false-start'); }
   if (state === 'go') {
     if (stimulusTime === null) return fail('Trial invalidated because the GO frame was not confirmed as paint-ready.', true);
     recordReaction(now, arduinoMicros, false); setState('result');
   }
+}
+
+function startSelectedRound() {
+  if (buttonDown) return;
+  if (testMode === 'reaction' && ['ready', 'result', 'false-start'].includes(state)) return startReaction();
+  if (testMode === 'cps' && ['ready', 'cps-result'].includes(state)) return startCpsTest();
+  if (testMode === 'flappy' && state === 'ready') armFlappy();
 }
 
 function startReaction() {
@@ -195,8 +201,8 @@ function startReaction() {
   }, delay);
 }
 
-function startCpsTest(countOpeningPress) {
-  cpsPresses = countOpeningPress ? 1 : 0;
+function startCpsTest() {
+  cpsPresses = 0;
   cpsEndsAt = performance.now() + SETTINGS.cpsDurationSeconds * 1000;
   setState('cps-active');
   cpsTimer = setInterval(() => {
@@ -291,14 +297,25 @@ function startFlappy() {
   flappyContext = flappyCanvas?.getContext('2d');
   if (!flappyContext) return;
   flappyBird = { x: 105, y: 280, velocity: 0, radius: 17, rotation: 0 };
-  flappyPipes = []; flappyScore = 0; flappyState = 'ready'; flappyLastFrame = performance.now(); flappyNextPipeAt = flappyLastFrame + 900;
+  flappyPipes = []; flappyScore = 0; flappyState = 'idle'; flappyLastFrame = performance.now(); flappyNextPipeAt = flappyLastFrame + 900;
   flappyFrame = requestAnimationFrame(flappyLoop);
+}
+
+function armFlappy() {
+  if (!flappyContext) return;
+  flappyBird = { x: 105, y: 280, velocity: 0, radius: 17, rotation: 0 };
+  flappyPipes = []; flappyScore = 0; flappyState = 'armed'; flappyNextPipeAt = performance.now() + 900;
+  const start = document.querySelector('#start-round');
+  if (start) start.disabled = true;
+  const hint = document.querySelector('#flappy-hint');
+  if (hint) hint.textContent = 'Ready. Press the giant button to make the first flap.';
+  updatePanel();
 }
 
 function flapFlappy() {
   if (!flappyContext) return;
-  if (flappyState === 'game-over') startFlappy();
-  if (flappyState === 'ready') flappyState = 'running';
+  if (!['armed', 'running'].includes(flappyState)) return;
+  if (flappyState === 'armed') flappyState = 'running';
   flappyBird.velocity = -390; flappyBird.rotation = -.5;
 }
 
@@ -324,7 +341,12 @@ function updateFlappy(delta, now) {
   if (flappyBird.y - flappyBird.radius < 0 || flappyBird.y + flappyBird.radius > 570) finishFlappy();
 }
 
-function finishFlappy() { flappyState = 'game-over'; flappyBest = Math.max(flappyBest, flappyScore); localStorage.setItem('giant-button-flappy-best', String(flappyBest)); updatePanel(); }
+function finishFlappy() {
+  flappyState = 'game-over'; flappyBest = Math.max(flappyBest, flappyScore); localStorage.setItem('giant-button-flappy-best', String(flappyBest));
+  const start = document.querySelector('#start-round'); if (start) { start.disabled = false; start.textContent = 'Start another game'; }
+  const hint = document.querySelector('#flappy-hint'); if (hint) hint.textContent = `Done — score ${flappyScore}, best ${flappyBest}. Choose Start for another game.`;
+  updatePanel();
+}
 function flappyRect(x, y, width, height, radius) { flappyContext.beginPath(); flappyContext.roundRect(x, y, width, height, radius); flappyContext.fill(); flappyContext.stroke(); }
 function flappyText(text, y, size, color = '#fff') { flappyContext.font = `900 ${size}px system-ui`; flappyContext.textAlign = 'center'; flappyContext.lineWidth = 5; flappyContext.strokeStyle = 'rgba(23,53,74,.42)'; flappyContext.strokeText(text, 210, y); flappyContext.fillStyle = color; flappyContext.fillText(text, 210, y); }
 
@@ -335,8 +357,9 @@ function drawFlappy() {
   flappyContext.fillStyle = '#ded05a'; flappyContext.fillRect(0, 570, 420, 50); flappyContext.fillStyle = '#a2bd49'; flappyContext.fillRect(0, 570, 420, 10);
   flappyContext.save(); flappyContext.translate(flappyBird.x, flappyBird.y); flappyContext.rotate(flappyBird.rotation); flappyContext.fillStyle = '#ffd54e'; flappyContext.strokeStyle = '#8a5629'; flappyContext.lineWidth = 3; flappyContext.beginPath(); flappyContext.ellipse(0, 0, 22, 17, 0, 0, Math.PI * 2); flappyContext.fill(); flappyContext.stroke(); flappyContext.fillStyle = '#fff'; flappyContext.beginPath(); flappyContext.arc(8, -6, 7, 0, Math.PI * 2); flappyContext.fill(); flappyContext.stroke(); flappyContext.fillStyle = '#1a3340'; flappyContext.beginPath(); flappyContext.arc(10, -6, 2.5, 0, Math.PI * 2); flappyContext.fill(); flappyContext.fillStyle = '#f36d3d'; flappyContext.beginPath(); flappyContext.moveTo(20, 1); flappyContext.lineTo(36, 7); flappyContext.lineTo(20, 12); flappyContext.closePath(); flappyContext.fill(); flappyContext.restore();
   flappyText(String(flappyScore), 72, 48);
-  if (flappyState === 'ready') { flappyText('PRESS BUTTON TO START', 245, 21, '#17354a'); }
-  if (flappyState === 'game-over') { flappyContext.fillStyle = 'rgba(255,255,255,.9)'; flappyContext.fillRect(45, 185, 330, 175); flappyText('DONE', 225, 30, '#f06a3d'); flappyText(`SCORE ${flappyScore}`, 270, 20, '#17354a'); flappyText(`BEST ${flappyBest}`, 305, 18, '#17354a'); flappyText('PRESS BUTTON TO START AGAIN', 340, 13, '#17354a'); }
+  if (flappyState === 'idle') { flappyText('CHOOSE START', 245, 24, '#17354a'); }
+  if (flappyState === 'armed') { flappyText('PRESS GIANT BUTTON', 245, 20, '#17354a'); }
+  if (flappyState === 'game-over') { flappyContext.fillStyle = 'rgba(255,255,255,.9)'; flappyContext.fillRect(45, 185, 330, 175); flappyText('DONE', 225, 30, '#f06a3d'); flappyText(`SCORE ${flappyScore}`, 270, 20, '#17354a'); flappyText(`BEST ${flappyBest}`, 305, 18, '#17354a'); flappyText('CHOOSE START FOR ANOTHER GAME', 340, 13, '#17354a'); }
 }
 
 exportButton.addEventListener('click', exportCsv);
