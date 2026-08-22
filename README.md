@@ -43,8 +43,8 @@ PRESS,12345678
 RELEASE,12678123
 ```
 
-`PRESS` is sent immediately when the switch first goes LOW. A 5 ms stable-release check prevents switch bounce from making duplicate presses. After connection, the website sends twelve `PING,<number>` probes and the Nano immediately returns `PONG,<number>,<micros>` for each one.
+`PRESS` is sent immediately when the switch first goes LOW. A 5 ms stable-release check prevents switch bounce from making duplicate presses. The Nano also supports `PING,<number>` → `PONG,<number>,<micros>` for a manual link-delay check.
 
 ## Timing note
 
-After connecting, the website averages twelve round-trip probes and uses half of that average as the Nano-to-browser link-delay estimate. It subtracts that number from every reaction time and saves both the raw and corrected values in the CSV. USB and browser scheduling are not perfectly symmetric, so this is a practical estimate—not laboratory-grade end-to-end timing calibration. Monitor/display latency remains outside this correction.
+This connected Nano was measured once with twenty round-trip probes. The site stores the resulting 1.85 ms one-way link-delay estimate and subtracts it from every hardware reaction time. It saves both the raw and corrected values in the CSV. USB and browser scheduling are not perfectly symmetric, so this is a practical estimate—not laboratory-grade end-to-end timing calibration. Monitor/display latency remains outside this correction.
