@@ -1,0 +1,42 @@
+/* Change colors and sizing here. No build step is needed. */
+:root { font-family: Arial, Helvetica, sans-serif; color: #f7f3e9; background: #101214; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button { font: inherit; color: inherit; background: #1b1e22; border: 1px solid #444; border-radius: 999px; padding: .8rem 1.1rem; cursor: pointer; }
+button:hover:not(:disabled) { border-color: #ffd43b; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+#app { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 330px; grid-template-rows: 70px 1fr; background: #101214; }
+#app[data-state="go"] { color: #071000; background: #b8ff31; }
+#app[data-state="false-start"] { color: #101214; background: #ff5b49; }
+header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding: 0 3vw; border-bottom: 1px solid #333; letter-spacing: .12em; font-size: .78rem; }
+header i { display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: #ffd43b; }
+#stage { min-height: 75vh; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; padding: 7vw; }
+#stage h1 { margin: .1em 0 .25em; font-size: clamp(4rem, 10vw, 9rem); line-height: .82; letter-spacing: -.07em; }
+#stage h1.result { font-size: clamp(6rem, 15vw, 13rem); }
+#stage h1.result small { font-size: .22em; letter-spacing: 0; }
+#stage h1.go { margin: 0; font-size: clamp(10rem, 30vw, 28rem); }
+#stage p { max-width: 600px; color: #aeb5bf; font-size: clamp(1rem, 1.6vw, 1.3rem); line-height: 1.5; }
+#app[data-state="go"] #stage p, #app[data-state="false-start"] #stage p { color: #101214; }
+.eyebrow { color: #ffd43b !important; font-family: Consolas, monospace; font-size: .8rem !important; font-weight: bold; letter-spacing: .18em; }
+#app[data-state="go"] .eyebrow, #app[data-state="false-start"] .eyebrow { color: #101214 !important; }
+.primary { color: #101214; background: #ffd43b; border-color: #ffd43b; font-weight: bold; padding: 1rem 1.5rem; }
+.button-row { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1rem 0; }
+.hint { color: #7f8791; font-size: .8rem; }
+aside { grid-column: 2; grid-row: 2; padding: 2rem; overflow: auto; color: #f7f3e9; background: #101214ee; border-left: 1px solid #333; }
+aside h2 { font-size: 1rem; letter-spacing: .12em; text-transform: uppercase; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 1.5rem 0; background: #333; border: 1px solid #333; }
+.stats div { padding: 1rem; background: #17191d; }
+.stats b, .stats span { display: block; }
+.stats b { font-size: 1.4rem; }
+.stats span, .muted { color: #8f97a1; font-size: .75rem; }
+aside button { padding: .55rem .8rem; font-size: .78rem; }
+details { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #333; }
+summary { cursor: pointer; font-size: .8rem; letter-spacing: .1em; text-transform: uppercase; }
+dl { display: grid; grid-template-columns: 1fr 1fr; font: 12px Consolas, monospace; }
+dd { margin: 0; text-align: right; }
+pre { max-height: 220px; padding: .75rem; overflow: auto; color: #91e9a4; background: #080a0b; font: 11px/1.5 Consolas, monospace; white-space: pre-wrap; }
+@media (max-width: 800px) {
+  #app { grid-template-columns: 1fr; grid-template-rows: 64px auto auto; }
+  #stage { min-height: 68vh; padding: 10vw 7vw; }
+  aside { grid-column: 1; grid-row: 3; border-left: 0; border-top: 1px solid #333; }
+}

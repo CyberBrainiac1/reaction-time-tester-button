@@ -22,32 +22,21 @@ reaction-time-tester/
 2. Install [Arduino IDE 2](https://www.arduino.cc/en/software), connect the Nano by USB, and open `arduino/reaction_time_nano/reaction_time_nano.ino`.
 3. In **Tools**, choose **Board → Arduino AVR Boards → Arduino Nano**, then select the Nano's COM port. Choose **Processor → ATmega328P**. If upload reports a sync error on an older clone, choose **ATmega328P (Old Bootloader)** and upload again.
 4. Click Upload. Optionally open Serial Monitor at 115200 baud; it should show `READY`, reply `PONG` to `PING`, and print one `PRESS` and one `RELEASE` per actuation. Close Serial Monitor before using the web app because only one program can own the COM port.
-5. Install current Node.js LTS from [nodejs.org](https://nodejs.org/). Open PowerShell in `frontend`, then run:
-
-   ```powershell
-   npm install
-   npm run dev
-   ```
-
-6. Open the exact localhost URL Vite prints in desktop Chrome or Edge. Web Serial does not work in Firefox and ordinarily requires localhost or HTTPS.
+5. Open the public GitHub Pages website in desktop Chrome or Edge. No web-app installation is needed. Web Serial does not work in Firefox and requires HTTPS or localhost.
 7. Click **Connect Arduino**, choose the Nano's COM port, and click **Connect** in the browser prompt. If several ports appear, unplug/replug the Nano and note which COM entry disappears/reappears; Windows Device Manager → **Ports (COM & LPT)** also shows it.
 8. Confirm **BUTTON RELEASED**, click **Start trial**, wait for the green **GO!**, and press the giant button. Release it before the next trial.
 
 For keyboard-only development, choose **Use keyboard simulator**, then use Space. Simulated rows are labeled in the UI and CSV; do not combine them with hardware measurements when analyzing performance.
 
-## Commands
+## Editing the website
 
-From `frontend`:
+The frontend is deliberately simple and build-free:
 
-```powershell
-npm run dev
-npm run typecheck
-npm run lint
-npm run build
-npm run preview
-```
+- `frontend/index.html` is the page structure.
+- `frontend/styles.css` is all colors and layout.
+- `frontend/app.js` is the behavior; its settings are clearly labeled at the top.
 
-`minDelayMs`, `maxDelayMs`, timeouts, baud rate, and log capacity are centralized in `frontend/src/config.ts`.
+Edit those three files directly on GitHub or in any text editor. Commit to `main` and GitHub Pages republishes automatically. No React, TypeScript, Vite, npm, package installation, or generated files are involved.
 
 ## Trial safety and reliability
 
@@ -67,7 +56,7 @@ npm run preview
 5. During waiting and during GO, switch tabs: verify the trial is invalidated.
 6. Unplug during waiting: verify an error with recovery instead of a result. Reconnect and run again.
 7. Run several hardware trials and one separate simulator session; export CSV and verify source, raw browser timestamps, Nano microseconds, validity, and false-start fields.
-8. Run `npm run typecheck`, `npm run lint`, and `npm run build` before deployment.
+8. After any edit, test hardware and simulator mode in Chrome or Edge before committing to `main`.
 
 ## Troubleshooting
 
@@ -85,4 +74,4 @@ See [timing limitations](docs/timing.md) before interpreting sub-frame differenc
 
 ## Public GitHub Pages deployment
 
-This repository includes `.github/workflows/deploy-pages.yml`. Every push to `main` validates and publishes the frontend. In the GitHub repository, open **Settings → Pages** and set **Source** to **GitHub Actions** once. The public HTTPS site can then use Web Serial in desktop Chrome or Edge; every visitor must choose and authorize their own Nano's COM port.
+This repository includes `.github/workflows/deploy-pages.yml`. Every push to `main` validates the three static files and publishes the frontend. It also enables GitHub Pages automatically. The public HTTPS site can use Web Serial in desktop Chrome or Edge; every visitor must choose and authorize their own Nano's COM port.

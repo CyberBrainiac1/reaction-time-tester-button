@@ -20,30 +20,19 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Typecheck, lint, and build
-        run: pnpm run typecheck && pnpm run lint && pnpm run build
+      - name: Verify static site files
+        run: test -f frontend/index.html && test -f frontend/styles.css && test -f frontend/app.js
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: frontend
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

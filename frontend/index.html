@@ -1,3 +1,37 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><meta name="theme-color" content="#0b0d10"/><meta name="description" content="Low-latency giant-button reaction time tester"/><title>Giant Button Reaction Tester</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
-
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101214">
+    <meta name="description" content="Giant-button reaction time tester">
+    <title>Giant Button Reaction Tester</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main id="app" data-state="disconnected">
+      <header>
+        <strong><i></i> GIANT BUTTON LAB</strong>
+        <span id="device-status">OFFLINE</span>
+      </header>
+      <section id="stage" aria-live="assertive"></section>
+      <aside>
+        <h2>Session</h2>
+        <div id="statistics"><p class="muted">No valid trials yet.</p></div>
+        <p id="counts" class="muted">0 false starts · 0 invalid</p>
+        <div class="button-row">
+          <button id="export-button" disabled>Export CSV</button>
+          <button id="clear-button" disabled>Clear</button>
+          <button id="mode-button" hidden>Use hardware</button>
+          <button id="disconnect-button" hidden>Disconnect</button>
+        </div>
+        <details>
+          <summary>Diagnostics</summary>
+          <dl id="diagnostics"></dl>
+          <pre id="serial-log">No serial traffic.</pre>
+        </details>
+      </aside>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
