@@ -21,7 +21,7 @@ reaction-time-tester/
 1. Unplug USB. Wire either center-switch terminal to Nano `D2`, and the other to `GND`. Leave the four return-spring switches unwired. See [docs/wiring.md](docs/wiring.md).
 2. Install [Arduino IDE 2](https://www.arduino.cc/en/software), connect the Nano by USB, and open `arduino/reaction_time_nano/reaction_time_nano.ino`.
 3. In **Tools**, choose **Board → Arduino AVR Boards → Arduino Nano**, then select the Nano's COM port. Choose **Processor → ATmega328P**. If upload reports a sync error on an older clone, choose **ATmega328P (Old Bootloader)** and upload again.
-4. Click Upload. Optionally open Serial Monitor at 115200 baud; it should show `READY`, reply `PONG` to `PING`, and print one `PRESS` and one `RELEASE` per actuation. Close Serial Monitor before using the web app because only one program can own the COM port.
+4. Click Upload. Optionally open Serial Monitor at 115200 baud; it shows `READY` after startup and prints one `PRESS` and one `RELEASE` per actuation. Close Serial Monitor before using the web app because only one program can own the COM port.
 5. Open the public GitHub Pages website in desktop Chrome or Edge. No web-app installation is needed. Web Serial does not work in Firefox and requires HTTPS or localhost.
 7. Click **Connect Arduino**, choose the Nano's COM port, and click **Connect** in the browser prompt. If several ports appear, unplug/replug the Nano and note which COM entry disappears/reappears; Windows Device Manager → **Ports (COM & LPT)** also shows it.
 8. Confirm **BUTTON RELEASED**, click **Start trial**, wait for the green **GO!**, and press the giant button. Release it before the next trial.
