@@ -182,7 +182,7 @@ function handleLine(line) {
     if (Number.isInteger(micros) && micros >= 0) receivedPress(micros); else addLog('! malformed PRESS timestamp');
   } else if (kind === 'RELEASE') { buttonDown = false; lastArduinoMicros = Number(value) || lastArduinoMicros; render(); }
   else if (kind === 'ERROR') fail([value, ...rest].filter(Boolean).join(',') || 'Arduino error');
-  else if (kind !== 'ARMED') addLog('! unknown message');
+  else addLog('! unknown message');
 }
 
 async function disconnectArduino(showState = true) {
