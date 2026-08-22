@@ -4,7 +4,6 @@ const SETTINGS = {
   baudRate: 115200,
   minimumWaitMilliseconds: 1500,
   maximumWaitMilliseconds: 5000,
-  connectionTimeoutMilliseconds: 5000,
 };
 
 const app = document.querySelector('#app');
@@ -149,19 +148,8 @@ async function connectArduino() {
     await serialPort.open({ baudRate: SETTINGS.baudRate, bufferSize: 255 });
     writer = serialPort.writable.getWriter(); closing = false;
     void readSerial();
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Timed out waiting for READY/PONG. Disconnect and try again.')), SETTINGS.connectionTimeoutMilliseconds);
-      readyCallback = () => { clearTimeout(timeout); readyCallback = null; resolve(); };
-      send('PING').catch(reject);
-    });
     source = 'hardware'; setState('ready');
   } catch (error) { await disconnectArduino(false); fail(error.message || String(error)); }
-}
-
-async function send(command) {
-  if (!writer) throw new Error('Arduino is not connected.');
-  await writer.write(new TextEncoder().encode(`${command}\n`));
-  addLog(`> ${command}`);
 }
 
 async function readSerial() {
@@ -188,8 +176,7 @@ function handleLine(line) {
   const [kind, value, ...rest] = line.split(',');
   if (kind === 'READY') {
     if (state === 'waiting' || state === 'go') fail('Trial invalidated because the Arduino reset.', true);
-    else readyCallback?.();
-  } else if (kind === 'PONG') readyCallback?.();
+  }
   else if (kind === 'PRESS') {
     const micros = Number(value);
     if (Number.isInteger(micros) && micros >= 0) receivedPress(micros); else addLog('! malformed PRESS timestamp');
@@ -210,8 +197,6 @@ async function disconnectArduino(showState = true) {
 async function startTrial() {
   if (!['ready', 'result', 'false-start'].includes(state) || buttonDown) return;
   stimulusTime = null; setState('waiting');
-  try { if (source === 'hardware') await send('ARM'); }
-  catch (error) { return fail(error.message || String(error)); }
   const delay = SETTINGS.minimumWaitMilliseconds + Math.random() * (SETTINGS.maximumWaitMilliseconds - SETTINGS.minimumWaitMilliseconds);
   waitTimer = setTimeout(() => {
     if (state !== 'waiting') return;
