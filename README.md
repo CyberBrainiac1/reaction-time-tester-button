@@ -12,6 +12,8 @@ Click **Connect Arduino**, choose the Nano's COM port, then start a trial. No we
 
 Use the **CPS test** button to switch modes. It runs a five-second round, counts every complete physical press, and reports clicks per second. CPS results have their own session stats and CSV export.
 
+The same site also includes a standalone [Flappy Bird game](frontend/flappy-bird/). Use Space, click/tap the game, or connect the Nano on that page and press the giant button to flap.
+
 ## Wiring
 
 ```text
