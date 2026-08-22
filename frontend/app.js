@@ -1,232 +1,6 @@
-/* Giant Button Reaction Tester â€” plain JavaScript, no build step required. */
-
-const SETTINGS = {
-  baudRate: 115200,
-  minimumWaitMilliseconds: 1500,
-  maximumWaitMilliseconds: 5000,
-};
-
-const app = document.querySelector('#app');
-const stage = document.querySelector('#stage');
-const deviceStatus = document.querySelector('#device-status');
-const statistics = document.querySelector('#statistics');
-const counts = document.querySelector('#counts');
-const diagnostics = document.querySelector('#diagnostics');
-const serialLog = document.querySelector('#serial-log');
-const exportButton = document.querySelector('#export-button');
-const clearButton = document.querySelector('#clear-button');
-const modeButton = document.querySelector('#mode-button');
-const disconnectButton = document.querySelector('#disconnect-button');
-
-let state = 'disconnected';
-let source = 'hardware';
-let buttonDown = false;
-let serialPort = null;
-let reader = null;
-let writer = null;
-let serialBuffer = '';
-let closing = false;
-let readyCallback = null;
-let waitTimer = null;
-let paintFrame = null;
-let stimulusTime = null;
-let lastArduinoMicros = null;
-let errorMessage = '';
-let trialResults = [];
-let logLines = [];
-
-function setState(next) {
-  state = next;
-  app.dataset.state = next;
-  render();
-}
-
-function addLog(message) {
-  logLines.unshift(`${performance.now().toFixed(3)}  ${message}`);
-  logLines = logLines.slice(0, 200);
-  serialLog.textContent = logLines.join('\n');
-}
-
-function stopTimers() {
-  clearTimeout(waitTimer);
-  cancelAnimationFrame(paintFrame);
-  waitTimer = null;
-  paintFrame = null;
-}
-
-function page(eyebrow, title, text, actions = '') {
-  return `<p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p>${text}</p>${actions}`;
-}
-
-function startButton() {
-  return `<button class="primary" id="start-button" ${buttonDown ? 'disabled' : ''}>${buttonDown ? 'Release button' : 'Start trial'}</button>`;
-}
-
-function render() {
-  deviceStatus.textContent = source === 'simulator' ? 'SIMULATOR' : state === 'disconnected' ? 'OFFLINE' : buttonDown ? 'BUTTON HELD' : 'BUTTON RELEASED';
-  if (state === 'disconnected') {
-    stage.innerHTML = page('REACTION TIME TESTER', 'Ready when<br>you are.', 'Connect the Arduino Nano, then hit the giant button the instant the screen turns green.', '<div class="button-row"><button class="primary" id="connect-button">Connect Arduino</button><button id="simulator-button">Use keyboard simulator</button></div><span class="hint">Chrome or Edge on Windows Â· 115200 baud Â· switch on D2</span>');
-  } else if (state === 'connecting') {
-    stage.innerHTML = page('CONNECTING', 'Finding the<br>giant buttonâ€¦', 'Select the Nanoâ€™s COM port. It may reset once connected.');
-  } else if (state === 'ready') {
-    stage.innerHTML = page('SYSTEM READY', 'Fast hands?', 'Keep the button released. The wait is random, so donâ€™t anticipate it.', startButton());
-  } else if (state === 'waiting') {
-    stage.innerHTML = page('WAIT FOR IT', 'Hold<br>steady.', 'Pressing now is a false start.');
-  } else if (state === 'go') {
-    stage.innerHTML = '<h1 class="go">GO!</h1>';
-  } else if (state === 'result') {
-    const last = trialResults.at(-1);
-    stage.innerHTML = `<p class="eyebrow">REACTION TIME</p><h1 class="result">${Math.round(last.reactionTimeMs)}<small> ms</small></h1><p>Measured arrival time: ${last.reactionTimeMs.toFixed(1)} ms${last.source === 'simulator' ? ' Â· simulated' : ''}</p>${startButton()}`;
-  } else if (state === 'false-start') {
-    stage.innerHTML = page('FALSE START', 'TOO<br>EARLY', 'Release the button, then try again.', startButton());
-  } else {
-    stage.innerHTML = page('TRIAL STOPPED', 'Something<br>changed.', errorMessage, '<button class="primary" id="recover-button">Recover</button>');
-  }
-
-  document.querySelector('#connect-button')?.addEventListener('click', connectArduino);
-  document.querySelector('#simulator-button')?.addEventListener('click', useSimulator);
-  document.querySelector('#start-button')?.addEventListener('click', startTrial);
-  document.querySelector('#recover-button')?.addEventListener('click', () => source === 'hardware' ? connectArduino() : setState('ready'));
-  updatePanel();
-}
-
-function updatePanel() {
-  const values = trialResults.filter(row => row.valid && !row.falseStart && row.reactionTimeMs !== null).map(row => row.reactionTimeMs);
-  if (!values.length) statistics.innerHTML = '<p class="muted">No valid trials yet.</p>';
-  else {
-    const sorted = [...values].sort((a, b) => a - b);
-    const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-    const median = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
-    const sd = values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / (values.length - 1)) : null;
-    const card = (value, label) => `<div><b>${value}</b><span>${label}</span></div>`;
-    statistics.innerHTML = `<div class="stats">${card(values.length, 'valid')}${card(average.toFixed(1), 'average ms')}${card(median.toFixed(1), 'median ms')}${card(sorted[0].toFixed(1), 'fastest ms')}${card(sorted.at(-1).toFixed(1), 'slowest ms')}${card(sd === null ? 'â€”' : sd.toFixed(1), 'std dev ms')}</div>`;
-  }
-  counts.textContent = `${trialResults.filter(row => row.falseStart).length} false starts Â· ${trialResults.filter(row => !row.valid).length} invalid`;
-  exportButton.disabled = !trialResults.length;
-  clearButton.disabled = !trialResults.length;
-  modeButton.hidden = source !== 'simulator';
-  disconnectButton.hidden = source !== 'hardware' || state === 'disconnected';
-  diagnostics.innerHTML = `<dt>State</dt><dd>${state}</dd><dt>Source</dt><dd>${source}</dd><dt>Button</dt><dd>${buttonDown ? 'pressed' : 'released'}</dd><dt>Stimulus</dt><dd>${stimulusTime?.toFixed(3) ?? 'â€”'}</dd><dt>Arduino Î¼s</dt><dd>${lastArduinoMicros ?? 'â€”'}</dd>`;
-  if (!logLines.length) serialLog.textContent = 'No serial traffic.';
-}
-
-function record(pressTime, arduinoMicros, falseStart, valid = true, invalidReason = '') {
-  trialResults.push({
-    trialNumber: trialResults.length + 1,
-    reactionTimeMs: falseStart || stimulusTime === null ? null : Math.max(0, pressTime - stimulusTime),
-    falseStart, browserStimulusTimestampMs: stimulusTime,
-    browserPressReceivedTimestampMs: pressTime, arduinoPressMicros: arduinoMicros,
-    dateTime: new Date().toISOString(), source, valid, invalidReason,
-  });
-}
-
-function fail(message, recordInvalid = false) {
-  stopTimers();
-  if (recordInvalid) record(performance.now(), null, false, false, message);
-  errorMessage = message;
-  setState('error');
-}
-
-function receivedPress(arduinoMicros) {
-  buttonDown = true;
-  lastArduinoMicros = arduinoMicros;
-  const now = performance.now();
-  if (state === 'waiting') {
-    stopTimers(); record(now, arduinoMicros, true); setState('false-start');
-  } else if (state === 'go') {
-    if (stimulusTime === null) fail('Trial invalidated because the GO frame was not confirmed as paint-ready.', true);
-    else { record(now, arduinoMicros, false); setState('result'); }
-  } else render();
-}
-
-async function connectArduino() {
-  if (!navigator.serial) return fail('Web Serial requires desktop Chrome or Edge over HTTPS.');
-  setState('connecting'); errorMessage = '';
-  try {
-    await disconnectArduino(false);
-    serialPort = await navigator.serial.requestPort();
-    await serialPort.open({ baudRate: SETTINGS.baudRate, bufferSize: 255 });
-    writer = serialPort.writable.getWriter(); closing = false;
-    void readSerial();
-    source = 'hardware'; setState('ready');
-  } catch (error) { await disconnectArduino(false); fail(error.message || String(error)); }
-}
-
-async function readSerial() {
-  try {
-    reader = serialPort.readable.getReader();
-    while (!closing) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      serialBuffer += new TextDecoder().decode(value);
-      let end;
-      while ((end = serialBuffer.indexOf('\n')) >= 0) {
-        const line = serialBuffer.slice(0, end).replace(/\r$/, '').trim();
-        serialBuffer = serialBuffer.slice(end + 1);
-        if (line) handleLine(line);
-      }
-    }
-    if (!closing) fail('The Arduino was disconnected.');
-  } catch (error) { if (!closing) fail(error.message || String(error)); }
-  finally { try { reader?.releaseLock(); } catch {} reader = null; }
-}
-
-function handleLine(line) {
-  addLog(`< ${line}`);
-  const [kind, value, ...rest] = line.split(',');
-  if (kind === 'READY') {
-    if (state === 'waiting' || state === 'go') fail('Trial invalidated because the Arduino reset.', true);
-  }
-  else if (kind === 'PRESS') {
-    const micros = Number(value);
-    if (Number.isInteger(micros) && micros >= 0) receivedPress(micros); else addLog('! malformed PRESS timestamp');
-  } else if (kind === 'RELEASE') { buttonDown = false; lastArduinoMicros = Number(value) || lastArduinoMicros; render(); }
-  else if (kind === 'ERROR') fail([value, ...rest].filter(Boolean).join(',') || 'Arduino error');
-  else addLog('! unknown message');
-}
-
-async function disconnectArduino(showState = true) {
-  closing = true;
-  try { await reader?.cancel(); } catch {} try { reader?.releaseLock(); } catch {} reader = null;
-  try { writer?.releaseLock(); } catch {} writer = null;
-  try { await serialPort?.close(); } catch {} serialPort = null;
-  serialBuffer = ''; buttonDown = false;
-  if (showState) setState('disconnected');
-}
-
-async function startTrial() {
-  if (!['ready', 'result', 'false-start'].includes(state) || buttonDown) return;
-  stimulusTime = null; setState('waiting');
-  const delay = SETTINGS.minimumWaitMilliseconds + Math.random() * (SETTINGS.maximumWaitMilliseconds - SETTINGS.minimumWaitMilliseconds);
-  waitTimer = setTimeout(() => {
-    if (state !== 'waiting') return;
-    setState('go');
-    paintFrame = requestAnimationFrame(() => {
-      if (state === 'go') { stimulusTime = performance.now(); addLog(`GO paint timestamp ${stimulusTime.toFixed(3)} ms`); }
-    });
-  }, delay);
-}
-
-function useSimulator() { void disconnectArduino(false); source = 'simulator'; buttonDown = false; setState('ready'); }
-
-function exportCsv() {
-  const keys = ['trialNumber', 'reactionTimeMs', 'falseStart', 'browserStimulusTimestampMs', 'browserPressReceivedTimestampMs', 'arduinoPressMicros', 'dateTime', 'source', 'valid', 'invalidReason'];
-  const headers = ['trial_number', 'reaction_time_ms', 'false_start', 'browser_stimulus_timestamp_ms', 'browser_press_received_timestamp_ms', 'arduino_press_micros', 'date_time', 'source', 'valid', 'invalid_reason'];
-  const quote = value => `"${String(value ?? '').replaceAll('"', '""')}"`;
-  const csv = [headers, ...trialResults.map(row => keys.map(key => row[key]))].map(row => row.map(quote).join(',')).join('\r\n');
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  const link = document.createElement('a'); link.href = url; link.download = `reaction-times-${new Date().toISOString().replaceAll(':', '-')}.csv`; link.click(); URL.revokeObjectURL(url);
-}
-
-exportButton.addEventListener('click', exportCsv);
-clearButton.addEventListener('click', () => { trialResults = []; render(); });
-disconnectButton.addEventListener('click', () => disconnectArduino());
-modeButton.addEventListener('click', () => { source = 'hardware'; setState('disconnected'); });
-window.addEventListener('keydown', event => {
-  if (source === 'simulator' && event.code === 'Space' && !event.repeat && !['BUTTON', 'INPUT', 'TEXTAREA'].includes(event.target.tagName)) { event.preventDefault(); receivedPress(null); }
-});
-window.addEventListener('keyup', event => { if (source === 'simulator' && event.code === 'Space') { buttonDown = false; render(); } });
-function invalidateHidden() { if ((document.hidden || !document.hasFocus()) && ['waiting', 'go'].includes(state)) fail('Trial invalidated because this page lost focus.', true); }
-document.addEventListener('visibilitychange', invalidateHidden);
-window.addEventListener('blur', invalidateHidden);
-render();
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíç_zN‹Z–‹­¦ëeŠw¬Ô¼¨¥…¹Ğ	ÕÑÑ½¸I•…Ñ¥½¸Q•ÍÑ•ÈƒŠPÁ±…¥¸)…Ù…MÉ¥ÁĞ°¹¼‰Õ¥±ÍÑ•ÀÉ•ÅÕ¥É•¸€¨¼()½¹ÍĞMQQ%9L€ôì(€‰…Õ‘I…Ñ”è€ÄÄÔÈÀÀ°(€µ¥¹¥µÕµ]…¥Ñ5¥±±¥Í•½¹‘Ìè€ÄÔÀÀ°(€µ…á¥µÕµ]…¥Ñ5¥±±¥Í•½¹‘Ìè€ÔÀÀÀ°(€…±¥‰É…Ñ¥½¹M…µÁ±•Ìè€ÄÈ°(€…±¥‰É…Ñ¥½¹Q¥µ•½ÕÑ5¥±±¥Í•½¹‘Ìè€ÜÔÀ°(€¹…¹½I•Í•Ñ]…¥Ñ5¥±±¥Í•½¹‘Ìè€ÜÀÀ°)ôì()½¹ÍĞ…ÁÀ€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œ…ÁÀœ¤ì)½¹ÍĞÍÑ…”€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œÍÑ…”œ¤ì)½¹ÍĞ‘•Ù¥•MÑ…ÑÕÌ€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œ‘•Ù¥”µÍÑ…ÑÕÌœ¤ì)½¹ÍĞÍÑ…Ñ¥ÍÑ¥Ì€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œÍÑ…Ñ¥ÍÑ¥Ìœ¤ì)½¹ÍĞ½Õ¹ÑÌ€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œ½Õ¹ÑÌœ¤ì)½¹ÍĞ‘¥…¹½ÍÑ¥Ì€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œ‘¥…¹½ÍÑ¥Ìœ¤ì)½¹ÍĞÍ•É¥…±1½œ€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œÍ•É¥…°µ±½œœ¤ì)½¹ÍĞ•áÁ½ÉÑ	ÕÑÑ½¸€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œ•áÁ½ÉĞµ‰ÕÑÑ½¸œ¤ì)½¹ÍĞ±•…É	ÕÑÑ½¸€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œ±•…Èµ‰ÕÑÑ½¸œ¤ì)½¹ÍĞµ½‘•	ÕÑÑ½¸€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œµ½‘”µ‰ÕÑÑ½¸œ¤ì)½¹ÍĞ‘¥Í½¹¹•Ñ	ÕÑÑ½¸€ô‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œ‘¥Í½¹¹•Ğµ‰ÕÑÑ½¸œ¤ì()±•ĞÍÑ…Ñ”€ô€‘¥Í½¹¹•Ñ•œì)±•ĞÍ½ÕÉ”€ô€¡…É‘İ…É”œì)±•Ğ‰ÕÑÑ½¹½İ¸€ô™…±Í”ì)±•ĞÍ•É¥…±A½ÉĞ€ô¹Õ±°ì)±•ĞÉ•…‘•È€ô¹Õ±°ì)±•ĞİÉ¥Ñ•È€ô¹Õ±°ì)±•ĞÍ•É¥…±	Õ™™•È€ô€œœì)±•Ğ±½Í¥¹œ€ô™…±Í”ì)±•ĞÉ•…‘å…±±‰…¬€ô¹Õ±°ì)±•Ğİ…¥ÑQ¥µ•È€ô¹Õ±°ì)±•ĞÁ…¥¹ÑÉ…µ”€ô¹Õ±°ì)±•ĞÍÑ¥µÕ±ÕÍQ¥µ”€ô¹Õ±°ì)±•Ğ±…ÍÑÉ‘Õ¥¹½5¥É½Ì€ô¹Õ±°ì)±•Ğ±¥¹­•±…å5Ì€ô¹Õ±°ì)±•Ğ…±¥‰É…Ñ¥½¹M…µÁ±•Ì€ômtì)±•Ğ…±¥‰É…Ñ¥½¹9½¹”€ô€Àì)±•ĞÁ•¹‘¥¹…±¥‰É…Ñ¥½¸€ô¹Õ±°ì)±•Ğ•ÉÉ½É5•ÍÍ…”€ô€œœì)±•ĞÑÉ¥…±I•ÍÕ±ÑÌ€ômtì)±•Ğ±½1¥¹•Ì€ômtì()™Õ¹Ñ¥½¸Í•ÑMÑ…Ñ”¡¹•áĞ¤ì(€ÍÑ…Ñ”€ô¹•áĞì(€…ÁÀ¹‘…Ñ…Í•Ğ¹ÍÑ…Ñ”€ô¹•áĞì(€É•¹‘•È ¤ì)ô()™Õ¹Ñ¥½¸…‘‘1½œ¡µ•ÍÍ…”¤ì(€±½1¥¹•Ì¹Õ¹Í¡¥™Ğ¡€‘íÁ•É™½Éµ…¹”¹¹½Ü ¤¹Ñ½¥á• Ì¥ô€€‘íµ•ÍÍ…•õ€¤ì(€±½1¥¹•Ì€ô±½1¥¹•Ì¹Í±¥” À°€ÈÀÀ¤ì(€Í•É¥…±1½œ¹Ñ•áÑ½¹Ñ•¹Ğ€ô±½1¥¹•Ì¹©½¥¸ q¸œ¤ì)ô()™Õ¹Ñ¥½¸ÍÑ½ÁQ¥µ•ÉÌ ¤ì(€±•…ÉQ¥µ•½ÕĞ¡İ…¥ÑQ¥µ•È¤ì(€…¹•±¹¥µ…Ñ¥½¹É…µ”¡Á…¥¹ÑÉ…µ”¤ì(€İ…¥ÑQ¥µ•È€ô¹Õ±°ì(€Á…¥¹ÑÉ…µ”€ô¹Õ±°ì)ô()™Õ¹Ñ¥½¸Á…”¡•å•‰É½Ü°Ñ¥Ñ±”°Ñ•áĞ°…Ñ¥½¹Ì€ô€œœ¤ì(€É•ÑÕÉ¸€ñÀ±…ÍÌô‰•å•‰É½Üˆø‘í•å•‰É½İôğ½Àøñ Äø‘íÑ¥Ñ±•ôğ½ ÄøñÀø‘íÑ•áÑôğ½Àø‘í…Ñ¥½¹Íõ€ì)ô()™Õ¹Ñ¥½¸ÍÑ…ÉÑ	ÕÑÑ½¸ ¤ì(€É•ÑÕÉ¸€ñ‰ÕÑÑ½¸±…ÍÌô‰ÁÉ¥µ…Éäˆ¥ô‰ÍÑ…ÉĞµ‰ÕÑÑ½¸ˆ€‘í‰ÕÑÑ½¹½İ¸€ü€‘¥Í…‰±•œ€è€œôø‘í‰ÕÑÑ½¹½İ¸€ü€I•±•…Í”‰ÕÑÑ½¸œ€è€MÑ…ÉĞÑÉ¥…°ôğ½‰ÕÑÑ½¸ù€ì)ô()™Õ¹Ñ¥½¸É•¹‘•È ¤ì(€‘•Ù¥•MÑ…ÑÕÌ¹Ñ•áÑ½¹Ñ•¹Ğ€ôÍ½ÕÉ”€ôôô€Í¥µÕ±…Ñ½Èœ€ü€M%5U1Q=Hœ€èÍÑ…Ñ”€ôôô€‘¥Í½¹¹•Ñ•œ€ü€=1%9œ€è‰ÕÑÑ½¹½İ¸€ü€	UQQ=8!1œ€è€	UQQ=8I1Mœì(€¥˜€¡ÍÑ…Ñ”€ôôô€‘¥Í½¹¹•Ñ•œ¤ì(€€€ÍÑ…”¹¥¹¹•É!Q50€ôÁ…” IQ%=8Q%5QMQHœ°€I•…‘äİ¡•¸ñ‰Èùå½Ô…É”¸œ°€½¹¹•ĞÑ¡”É‘Õ¥¹¼9…¹¼°Ñ¡•¸¡¥ĞÑ¡”¥…¹Ğ‰ÕÑÑ½¸Ñ¡”¥¹ÍÑ…¹ĞÑ¡”ÍÉ••¸ÑÕÉ¹ÌÉ••¸¸œ°€œñ‘¥Ø±…ÍÌô‰‰ÕÑÑ½¸µÉ½Üˆøñ‰ÕÑÑ½¸±…ÍÌô‰ÁÉ¥µ…Éäˆ¥ô‰½¹¹•Ğµ‰ÕÑÑ½¸ˆù½¹¹•ĞÉ‘Õ¥¹¼ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸¥ô‰Í¥µÕ±…Ñ½Èµ‰ÕÑÑ½¸ˆùUÍ”­•å‰½…ÉÍ¥µÕ±…Ñ½Èğ½‰ÕÑÑ½¸øğ½‘¥ØøñÍÁ…¸±…ÍÌô‰¡¥¹Ğˆù¡É½µ”½È‘”½¸]¥¹‘½İÌƒ
+Ü€ÄÄÔÈÀÀ‰…Õƒ
+ÜÍİ¥Ñ ½¸Èğ½ÍÁ…¸øœ¤ì(€ô•±Í”¥˜€¡ÍÑ…Ñ”€ôôô€½¹¹•Ñ¥¹œœ¤ì(€€€ÍÑ…”¹¥¹¹•É!Q50€ôÁ…” =99Q%9œ°€¥¹‘¥¹œÑ¡”ñ‰Èù¥…¹Ğ‰ÕÑÑ½»Š˜œ°€M•±•ĞÑ¡”9…¹¿ŠeÌ=4Á½ÉĞ¸%Ğµ…äÉ•Í•Ğ½¹”½¹¹•Ñ•¸œ¤ì(€ô•±Í”¥˜€¡ÍÑ…Ñ”€ôôô€…±¥‰É…Ñ¥¹œœ¤ì(€€€ÍÑ…”¹¥¹¹•É!Q50€ôÁ…” 1%	IQ%9œ°€¡•­¥¹œÑ¡”ñ‰Èù½¹¹•Ñ¥½»Š˜œ°M•¹‘¥¹œ€‘íMQQ%9L¹…±¥‰É…Ñ¥½¹M…µÁ±•ÍôÑ¥µ¥¹œÁÉ½‰•ÌÑ¼Ñ¡”9…¹¼¸Q¡¥ÌÑ…­•Ì„™•ÜÍ•½¹‘Ì¹€¤ì(€ô•±Í”¥˜€¡ÍÑ…Ñ”€ôôô€É•…‘äœ¤ì(€€€ÍÑ…”¹¥¹¹•É!Q50€ôÁ…” MeMQ4Idœ°€…ÍĞ¡…¹‘Ìüœ°€-••ÀÑ¡”‰ÕÑÑ½¸É•±•…Í•¸Q¡”İ…¥Ğ¥ÌÉ…¹‘½´°Í¼‘½»ŠeĞ…¹Ñ¥¥Á…Ñ”¥Ğ¸œ°ÍÑ…ÉÑ	ÕÑÑ½¸ ¤¤ì(€ô•±Í”¥˜€¡ÍÑ…Ñ”€ôôô€İ…¥Ñ¥¹œœ¤ì(€€€ÍÑ…”¹¥¹¹•É!Q50€ôÁ…” ]%P=H%Pœ°€!½±ñ‰ÈùÍÑ•…‘ä¸œ°€AÉ•ÍÍ¥¹œ¹½Ü¥Ì„™…±Í”ÍÑ…ÉĞ¸œ¤ì(€ô•±Í”¥˜€¡ÍÑ…Ñ”€ôôô€¼œ¤ì(€€€ÍÑ…”¹¥¹¹•É!Q50€ô€œñ Ä±…ÍÌô‰¼ˆù<„ğ½ Äøœì(€ô•±Í”¥˜€¡ÍÑ…Ñ”€ôôô€É•ÍÕ±Ğœ¤ì(€€€½¹ÍĞ±…ÍĞ€ôÑÉ¥…±I•ÍÕ±ÑÌ¹…Ğ ´Ä¤ì(€€€½¹ÍĞµ•…ÍÕÉ•µ•¹Ğ€ô±…ÍĞ¹É…İI•…Ñ¥½¹Q¥µ•5Ìü¹Ñ½¥á• Ä¤€üü±…ÍĞ¹É•…Ñ¥½¹Q¥µ•5Ì¹Ñ½¥á• Ä¤ì(€€€½¹ÍĞ½ÉÉ•Ñ¥½¸€ô±…ÍĞ¹±¥¹­•±…å5Ì€ôôô¹Õ±°€ü€œœ€è€ƒ
+Ü€‘í±…ÍĞ¹±¥¹­•±…å5Ì¹Ñ½¥á• È¥ôµÌ±¥¹¬½ÉÉ•Ñ¥½¹€ì(€€€ÍÑ…”¹¥¹¹•É!Q50€ô€ñÀ±…ÍÌô‰•å•‰É½ÜˆùIQ%=8Q%5ğ½Àøñ Ä±…ÍÌô‰É•ÍÕ±Ğˆø‘í5…Ñ ¹É½Õ¹¡±…ÍĞ¹É•…Ñ¥½¹Q¥µ•5Ì¥ôñÍµ…±°øµÌğ½Íµ…±°øğ½ ÄøñÀùI…Ü…ÉÉ¥Ù…°Ñ¥µ”è€‘íµ•…ÍÕÉ•µ•¹ÑôµÌ‘í½ÉÉ•Ñ¥½¹ô‘í±…ÍĞ¹Í½ÕÉ”€ôôô€Í¥µÕ±…Ñ½Èœ€ü€œƒ
+ÜÍ¥µÕ±…Ñ•œ€è€œôğ½Àø‘íÍÑ…ÉÑ	ÕÑÑ½¸ ¥õ€ì(€ô•±Í”¥˜€¡ÍÑ…Ñ”€ôôô€™…±Í”µÍÑ…ÉĞœ¤ì(€€€ÍÑ…”¹¥¹¹•É!Q50€ôÁ…” 1MMQIPœ°€Q=<ñ‰ÈùI1dœ°€I•±•…Í”Ñ¡”‰ÕÑÑ½¸°Ñ¡•¸ÑÉä……¥¸¸œ°ÍÑ…ÉÑ	ÕÑÑ½¸ ¤¤ì(€ô•±Í”ì(€€€ÍÑ…”¹¥¹¹•É!Q50€ôÁ…” QI%0MQ=AAœ°€M½µ•Ñ¡¥¹œñ‰Èù¡…¹•¸œ°•ÉÉ½É5•ÍÍ…”°€œñ‰ÕÑÑ½¸±…ÍÌô‰ÁÉ¥µ…Éäˆ¥ô‰É•½Ù•Èµ‰ÕÑÑ½¸ˆùI•½Ù•Èğ½‰ÕÑÑ½¸øœ¤ì(€ô((€‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œ½¹¹•Ğµ‰ÕÑÑ½¸œ¤ü¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ±¥¬œ°½¹¹•ÑÉ‘Õ¥¹¼¤ì(€‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œÍ¥µÕ±…Ñ½Èµ‰ÕÑÑ½¸œ¤ü¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ±¥¬œ°ÕÍ•M¥µÕ±…Ñ½È¤ì(€‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œÍÑ…ÉĞµ‰ÕÑÑ½¸œ¤ü¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ±¥¬œ°ÍÑ…ÉÑQÉ¥…°¤ì(€‘½Õµ•¹Ğ¹ÅÕ•ÉåM•±•Ñ½È œÉ•½Ù•Èµ‰ÕÑÑ½¸œ¤ü¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ±¥¬œ°€ ¤€ôøÍ½ÕÉ”€ôôô€¡…É‘İ…É”œ€ü½¹¹•ÑÉ‘Õ¥¹¼ ¤€èÍ•ÑMÑ…Ñ” É•…‘äœ¤¤ì(€ÕÁ‘…Ñ•A…¹•° ¤ì)ô()™Õ¹Ñ¥½¸ÕÁ‘…Ñ•A…¹•° ¤ì(€½¹ÍĞÙ…±Õ•Ì€ôÑÉ¥…±I•ÍÕ±ÑÌ¹™¥±Ñ•È¡É½Ü€ôøÉ½Ü¹Ù…±¥€˜˜€…É½Ü¹™…±Í•MÑ…ÉĞ€˜˜É½Ü¹É•…Ñ¥½¹Q¥µ•5Ì€„ôô¹Õ±°¤¹µ…À¡É½Ü€ôøÉ½Ü¹É•…Ñ¥½¹Q¥µ•5Ì¤ì(€¥˜€ …Ù…±Õ•Ì¹±•¹Ñ ¤ÍÑ…Ñ¥ÍÑ¥Ì¹¥¹¹•É!Q50€ô€œñÀ±…ÍÌô‰µÕÑ•ˆù9¼Ù…±¥ÑÉ¥…±Ìå•Ğ¸ğ½Àøœì(€•±Í”ì(€€€½¹ÍĞÍ½ÉÑ•€ôl¸¸¹Ù…±Õ•Ít¹Í½ÉĞ ¡„°ˆ¤€ôø„€´ˆ¤ì(€€€½¹ÍĞ…Ù•É…”€ôÙ…±Õ•Ì¹É•‘Õ” ¡ÍÕ´°Ù…±Õ”¤€ôøÍÕ´€¬Ù…±Õ”°€À¤€¼Ù…±Õ•Ì¹±•¹Ñ ì(€€€½¹ÍĞµ•‘¥…¸€ôÍ½ÉÑ•¹±•¹Ñ €”€È€üÍ½ÉÑ•‘l¡Í½ÉÑ•¹±•¹Ñ €´€Ä¤€¼€Ét€è€¡Í½ÉÑ•‘mÍ½ÉÑ•¹±•¹Ñ €¼€È€´€Åt€¬Í½ÉÑ•‘mÍ½ÉÑ•¹±•¹Ñ €¼€Ét¤€¼€Èì(€€€½¹ÍĞÍ€ôÙ…±Õ•Ì¹±•¹Ñ €ø€Ä€ü5…Ñ ¹ÍÅÉĞ¡Ù…±Õ•Ì¹É•‘Õ” ¡ÍÕ´°Ù…±Õ”¤€ôøÍÕ´€¬€¡Ù…±Õ”€´…Ù•É…”¤€¨¨€È°€À¤€¼€¡Ù…±Õ•Ì¹±•¹Ñ €´€Ä¤¤€è¹Õ±°ì(€€€½¹ÍĞ…É€ô€¡Ù…±Õ”°±…‰•°¤€ôø€ñ‘¥Øøñˆø‘íÙ…±Õ•ôğ½ˆøñÍÁ…¸ø‘í±…‰•±ôğ½ÍÁ…¸øğ½‘¥Øù€ì(€€€ÍÑ…Ñ¥ÍÑ¥Ì¹¥¹¹•É!Q50€ô€ñ‘¥Ø±…ÍÌô‰ÍÑ…ÑÌˆø‘í…É¡Ù…±Õ•Ì¹±•¹Ñ °€Ù…±¥œ¥ô‘í…É¡…Ù•É…”¹Ñ½¥á• Ä¤°€…Ù•É…”µÌœ¥ô‘í…É¡µ•‘¥…¸¹Ñ½¥á• Ä¤°€µ•‘¥…¸µÌœ¥ô‘í…É¡Í½ÉÑ•‘lÁt¹Ñ½¥á• Ä¤°€™…ÍÑ•ÍĞµÌœ¥ô‘í…É¡Í½ÉÑ•¹…Ğ ´Ä¤¹Ñ½¥á• Ä¤°€Í±½İ•ÍĞµÌœ¥ô‘í…É¡Í€ôôô¹Õ±°€ü€ŸŠPœ€èÍ¹Ñ½¥á• Ä¤°€ÍÑ‘•ØµÌœ¥ôğ½‘¥Øù€ì(€ô(€½Õ¹ÑÌ¹Ñ•áÑ½¹Ñ•¹Ğ€ô€‘íÑÉ¥…±I•ÍÕ±ÑÌ¹™¥±Ñ•È¡É½Ü€ôøÉ½Ü¹™…±Í•MÑ…ÉĞ¤¹±•¹Ñ¡ô™…±Í”ÍÑ…ÉÑÌƒ
+Ü€‘íÑÉ¥…±I•ÍÕ±ÑÌ¹™¥±Ñ•È¡É½Ü€ôø€…É½Ü¹Ù…±¥¤¹±•¹Ñ¡ô¥¹Ù…±¥‘€ì(€•áÁ½ÉÑ	ÕÑÑ½¸¹‘¥Í…‰±•€ô€…ÑÉ¥…±I•ÍÕ±ÑÌ¹±•¹Ñ ì(€±•…É	ÕÑÑ½¸¹‘¥Í…‰±•€ô€…ÑÉ¥…±I•ÍÕ±ÑÌ¹±•¹Ñ ì(€µ½‘•	ÕÑÑ½¸¹¡¥‘‘•¸€ôÍ½ÕÉ”€„ôô€Í¥µÕ±…Ñ½Èœì(€‘¥Í½¹¹•Ñ	ÕÑÑ½¸¹¡¥‘‘•¸€ôÍ½ÕÉ”€„ôô€¡…É‘İ…É”œñğÍÑ…Ñ”€ôôô€‘¥Í½¹¹•Ñ•œì(€‘¥…¹½ÍÑ¥Ì¹¥¹¹•É!Q50€ô€ñ‘ĞùMÑ…Ñ”ğ½‘Ğøñ‘ø‘íÍÑ…Ñ•ôğ½‘øñ‘ĞùM½ÕÉ”ğ½‘Ğøñ‘ø‘íÍ½ÕÉ•ôğ½‘øñ‘Ğù	ÕÑÑ½¸ğ½‘Ğøñ‘ø‘í‰ÕÑÑ½¹½İ¸€ü€ÁÉ•ÍÍ•œ€è€É•±•…Í•ôğ½‘øñ‘ĞùMÑ¥µÕ±ÕÌğ½‘Ğøñ‘ø‘íÍÑ¥µÕ±ÕÍQ¥µ”ü¹Ñ½¥á• Ì¤€üü€ŸŠPôğ½‘øñ‘ĞùÉ‘Õ¥¹¼ƒ:ñÌğ½‘Ğøñ‘ø‘í±…ÍÑÉ‘Õ¥¹½5¥É½Ì€üü€ŸŠPôğ½‘øñ‘Ğù1¥¹¬½ÉÉ•Ñ¥½¸ğ½‘Ğøñ‘ø‘í±¥¹­•±…å5Ì€ôôô¹Õ±°€ü€9½Ğ…±¥‰É…Ñ•œ€è€‘í±¥¹­•±…å5Ì¹Ñ½¥á• È¥ôµÌ€ ‘í…±¥‰É…Ñ¥½¹M…µÁ±•Ì¹±•¹Ñ¡ôÁÉ½‰•Ì¥ôğ½‘ù€ì(€¥˜€ …±½1¥¹•Ì¹±•¹Ñ ¤Í•É¥…±1½œ¹Ñ•áÑ½¹Ñ•¹Ğ€ô€9¼Í•É¥…°ÑÉ…™™¥Œ¸œì)ô()™Õ¹Ñ¥½¸É•½É¡ÁÉ•ÍÍQ¥µ”°…É‘Õ¥¹½5¥É½Ì°™…±Í•MÑ…ÉĞ°Ù…±¥€ôÑÉÕ”°¥¹Ù…±¥‘I•…Í½¸€ô€œœ¤ì(€½¹ÍĞÉ…İI•…Ñ¥½¹Q¥µ•5Ì€ô™…±Í•MÑ…ÉĞñğÍÑ¥µÕ±ÕÍQ¥µ”€ôôô¹Õ±°€ü¹Õ±°€è5…Ñ ¹µ…à À°ÁÉ•ÍÍQ¥µ”€´ÍÑ¥µÕ±ÕÍQ¥µ”¤ì(€ÑÉ¥…±I•ÍÕ±ÑÌ¹ÁÕÍ ¡ì(€€€ÑÉ¥…±9Õµ‰•ÈèÑÉ¥…±I•ÍÕ±ÑÌ¹±•¹Ñ €¬€Ä°(€€€É•…Ñ¥½¹Q¥µ•5ÌèÉ…İI•…Ñ¥½¹Q¥µ•5Ì€ôôô¹Õ±°€ü¹Õ±°€è5…Ñ ¹µ…à À°É…İI•…Ñ¥½¹Q¥µ•5Ì€´€¡±¥¹­•±…å5Ì€üü€À¤¤°(€€€É…İI•…Ñ¥½¹Q¥µ•5Ì°±¥¹­•±…å5ÌèÍ½ÕÉ”€ôôô€¡…É‘İ…É”œ€ü±¥¹­•±…å5Ì€è¹Õ±°°(€€€™…±Í•MÑ…ÉĞ°‰É½İÍ•ÉMÑ¥µÕ±ÕÍQ¥µ•ÍÑ…µÁ5ÌèÍÑ¥µÕ±ÕÍQ¥µ”°(€€€‰É½İÍ•ÉAÉ•ÍÍI••¥Ù•‘Q¥µ•ÍÑ…µÁ5ÌèÁÉ•ÍÍQ¥µ”°…É‘Õ¥¹½AÉ•ÍÍ5¥É½Ìè…É‘Õ¥¹½5¥É½Ì°(€€€‘…Ñ•Q¥µ”è¹•Ü…Ñ” ¤¹Ñ½%M=MÑÉ¥¹œ ¤°Í½ÕÉ”°Ù…±¥°¥¹Ù…±¥‘I•…Í½¸°(€ô¤ì)ô()™Õ¹Ñ¥½¸™…¥°¡µ•ÍÍ…”°É•½É‘%¹Ù…±¥€ô™…±Í”¤ì(€ÍÑ½ÁQ¥µ•ÉÌ ¤ì(€¥˜€¡É•½Ë_z¶‰Ëkºwµç`¤ì)ô()…Íå¹Œ™Õ¹Ñ¥½¸½¹¹•ÑÉ‘Õ¥¹¼ ¤ì(€¥˜€ …¹…Ù¥…Ñ½È¹Í•É¥…°¤É•ÑÕÉ¸™…¥° ]•ˆM•É¥…°É•ÅÕ¥É•Ì‘•Í­Ñ½À¡É½µ”½È‘”½Ù•È!QQAL¸œ¤ì(€Í•ÑMÑ…Ñ” ½¹¹•Ñ¥¹œœ¤ì•ÉÉ½É5•ÍÍ…”€ô€œœì(€ÑÉäì(€€€…İ…¥Ğ‘¥Í½¹¹•ÑÉ‘Õ¥¹¼¡™…±Í”¤ì(€€€Í•É¥…±A½ÉĞ€ô…İ…¥Ğ¹…Ù¥…Ñ½È¹Í•É¥…°¹É•ÅÕ•ÍÑA½ÉĞ ¤ì(€€€…İ…¥ĞÍ•É¥…±A½ÉĞ¹½Á•¸¡ì‰…Õ‘I…Ñ”èMQQ%9L¹‰…Õ‘I…Ñ”°‰Õ™™•ÉM¥é”è€ÈÔÔô¤ì(€€€İÉ¥Ñ•È€ôÍ•É¥…±A½ÉĞ¹İÉ¥Ñ…‰±”¹•Ñ]É¥Ñ•È ¤ì±½Í¥¹œ€ô™…±Í”ì(€€€Ù½¥É•…‘M•É¥…° ¤ì(€€€Í½ÕÉ”€ô€¡…É‘İ…É”œì±¥¹­•±…å5Ì€ô¹Õ±°ì…±¥‰É…Ñ¥½¹M…µÁ±•Ì€ômtì(€€€Í•ÑMÑ…Ñ” …±¥‰É…Ñ¥¹œœ¤ì(€€€…İ…¥Ğ¹•ÜAÉ½µ¥Í”¡É•Í½±Ù”€ôøÍ•ÑQ¥µ•½ÕĞ¡É•Í½±Ù”°MQQ%9L¹¹…¹½I•Í•Ñ]…¥Ñ5¥±±¥Í•½¹‘Ì¤¤ì(€€€ÑÉäì(€€€€€…İ…¥Ğ…±¥‰É…Ñ•1¥¹¬ ¤ì(€€€ô…Ñ €¡…±¥‰É…Ñ¥½¹ÉÉ½È¤ì(€€€€€±¥¹­•±…å5Ì€ô¹Õ±°ì(€€€€€…±¥‰É…Ñ¥½¹M…µÁ±•Ì€ômtì(€€€€€…‘‘1½œ¡…±¥‰É…Ñ¥½¸Õ¹…Ù…¥±…‰±”è€‘í…±¥‰É…Ñ¥½¹ÉÉ½È¹µ•ÍÍ…”ñğ…±¥‰É…Ñ¥½¹ÉÉ½Éõ€¤ì(€€€ô(€€€Í•ÑMÑ…Ñ” É•…‘äœ¤ì(€ô…Ñ €¡•ÉÉ½È¤ì…İ…¥Ğ‘¥Í½¹¹•ÑÉ‘Õ¥¹¼¡™…±Í”¤ì™…¥°¡•ÉÉ½È¹µ•ÍÍ…”ñğMÑÉ¥¹œ¡•ÉÉ½È¤¤ìô)ô()…Íå¹Œ™Õ¹Ñ¥½¸É•…‘M•É¥…° ¤ì(€ÑÉäì(€€€É•…‘•È€ôÍ•É¥…±A½ÉĞ¹É•…‘…‰±”¹•ÑI•…‘•È ¤ì(€€€İ¡¥±”€ …±½Í¥¹œ¤ì(€€€€€½¹ÍĞìÙ…±Õ”°‘½¹”ô€ô…İ…¥ĞÉ•…‘•È¹É•… ¤ì(€€€€€¥˜€¡‘½¹”¤‰É•…¬ì(€€€€€Í•É¥…±	Õ™™•È€¬ô¹•ÜQ•áÑ•½‘•È ¤¹‘•½‘”¡Ù…±Õ”¤ì(€€€€€±•Ğ•¹ì(€€€€€İ¡¥±”€ ¡•¹€ôÍ•É¥…±	Õ™™•È¹¥¹‘•á=˜ q¸œ¤¤€øô€À¤ì(€€€€€€€½¹ÍĞ±¥¹”€ôÍ•É¥…±	Õ™™•È¹Í±¥” À°•¹¤¹É•Á±…” ½qÈ¼°€œœ¤¹ÑÉ¥´ ¤ì(€€€€€€€Í•É¥…±	Õ™™•È€ôÍ•É¥…±	Õ™™•È¹Í±¥”¡•¹€¬€Ä¤ì(€€€€€€€¥˜€¡±¥¹”¤¡…¹‘±•1¥¹”¡±¥¹”¤ì(€€€€€ô(€€€ô(€€€¥˜€ …±½Í¥¹œ¤™…¥° Q¡”É‘Õ¥¹¼İ…Ì‘¥Í½¹¹•Ñ•¸œ¤ì(€ô…Ñ €¡•ÉÉ½È¤ì¥˜€ …±½Í¥¹œ¤™…¥°¡•ÉÉ½È¹µ•ÍÍ…”ñğMÑÉ¥¹œ¡•ÉÉ½È¤¤ìô(€™¥¹…±±äìÑÉäìÉ•…‘•Èü¹É•±•…Í•1½¬ ¤ìô…Ñ íôÉ•…‘•È€ô¹Õ±°ìô)ô()™Õ¹Ñ¥½¸¡…¹‘±•1¥¹”¡±¥¹”¤ì(€…‘‘1½œ¡€ğ€‘í±¥¹•õ€¤ì(€½¹ÍĞm­¥¹°Ù…±Õ”°€¸¸¹É•ÍÑt€ô±¥¹”¹ÍÁ±¥Ğ œ°œ¤ì(€¥˜€¡­¥¹€ôôô€Idœ¤ì(€€€¥˜€¡ÍÑ…Ñ”€ôôô€İ…¥Ñ¥¹œœñğÍÑ…Ñ”€ôôô€¼œ¤™…¥° QÉ¥…°¥¹Ù…±¥‘…Ñ•‰•…ÕÍ”Ñ¡”É‘Õ¥¹¼É•Í•Ğ¸œ°ÑÉÕ”¤ì(€ô(€•±Í”¥˜€¡­¥¹€ôôô€AIMLœ¤ì(€€€½¹ÍĞµ¥É½Ì€ô9Õµ‰•È¡Ù…±Õ”¤ì(€€€¥˜€¡9Õµ‰•È¹¥Í%¹Ñ••È¡µ¥É½Ì¤€˜˜µ¥É½Ì€øô€À¤É••¥Ù•‘AÉ•ÍÌ¡µ¥É½Ì¤ì•±Í”…‘‘1½œ œ„µ…±™½Éµ•AIMLÑ¥µ•ÍÑ…µÀœ¤ì(€ô•±Í”¥˜€¡­¥¹€ôôô€I1Mœ¤ì‰ÕÑÑ½¹½İ¸€ô™…±Í”ì±…ÍÑÉ‘Õ¥¹½5¥É½Ì€ô9Õµ‰•È¡Ù…±Õ”¤ñğ±…ÍÑÉ‘Õ¥¹½5¥É½ÌìÉ•¹‘•È ¤ìô(€•±Í”¥˜€¡­¥¹€ôôô€A=9œ¤É••¥Ù•…±¥‰É…Ñ¥½¸¡Ù…±Õ”°É•ÍÑlÁt¤ì(€•±Í”¥˜€¡­¥¹€ôôô€II=Hœ¤™…¥°¡mÙ…±Õ”°€¸¸¹É•ÍÑt¹™¥±Ñ•È¡	½½±•…¸¤¹©½¥¸ œ°œ¤ñğ€É‘Õ¥¹¼•ÉÉ½Èœ¤ì(€•±Í”…‘‘1½œ œ„Õ¹­¹½İ¸µ•ÍÍ…”œ¤ì)ô()™Õ¹Ñ¥½¸Í•¹‘1¥¹”¡±¥¹”¤ì(€¥˜€ …İÉ¥Ñ•È¤É•ÑÕÉ¸AÉ½µ¥Í”¹É•©•Ğ¡¹•ÜÉÉ½È É‘Õ¥¹¼Í•É¥…°İÉ¥Ñ•È¥ÌÕ¹…Ù…¥±…‰±”¸œ¤¤ì(€…‘‘1½œ¡€ø€‘í±¥¹”¹ÑÉ¥´ ¥õ€¤ì(€É•ÑÕÉ¸İÉ¥Ñ•È¹İÉ¥Ñ”¡¹•ÜQ•áÑ¹½‘•È ¤¹•¹½‘”¡±¥¹”¤¤ì)ô()™Õ¹Ñ¥½¸É••¥Ù•…±¥‰É…Ñ¥½¸¡¹½¹”°…É‘Õ¥¹½5¥É½Ì¤ì(€¥˜€ …Á•¹‘¥¹…±¥‰É…Ñ¥½¸ñğMÑÉ¥¹œ¡Á•¹‘¥¹…±¥‰É…Ñ¥½¸¹¹½¹”¤€„ôôMÑÉ¥¹œ¡¹½¹”¤¤É•ÑÕÉ¸ì(€½¹ÍĞÁ•¹‘¥¹œ€ôÁ•¹‘¥¹…±¥‰É…Ñ¥½¸ì(€Á•¹‘¥¹…±¥‰É…Ñ¥½¸€ô¹Õ±°ì(€±•…ÉQ¥µ•½ÕĞ¡Á•¹‘¥¹œ¹Ñ¥µ•½ÕĞ¤ì(€Á•¹‘¥¹œ¹É•Í½±Ù”¡ì(€€€É½Õ¹‘QÉ¥Á5ÌèÁ•É™½Éµ…¹”¹¹½Ü ¤€´Á•¹‘¥¹œ¹Í•¹ÑĞ°(€€€…É‘Õ¥¹½5¥É½Ìè9Õµ‰•È¡…É‘Õ¥¹½5¥É½Ì¤ñğ¹Õ±°°(€ô¤ì)ô()…Íå¹Œ™Õ¹Ñ¥½¸µ•…ÍÕÉ•=¹•]…å•±…ä ¤ì(€½¹ÍĞ¹½¹”€ô€¬­…±¥‰É…Ñ¥½¹9½¹”ì(€É•ÑÕÉ¸¹•ÜAÉ½µ¥Í” ¡É•Í½±Ù”°É•©•Ğ¤€ôøì(€€€½¹ÍĞÍ•¹ÑĞ€ôÁ•É™½Éµ…¹”¹¹½Ü ¤ì(€€€½¹ÍĞÑ¥µ•½ÕĞ€ôÍ•ÑQ¥µ•½ÕĞ  ¤€ôøì(€€€€€¥˜€¡Á•¹‘¥¹…±¥‰É…Ñ¥½¸ü¹¹½¹”€ôôô¹½¹”¤Á•¹‘¥¹…±¥‰É…Ñ¥½¸€ô¹Õ±°ì(€€€€€É•©•Ğ¡¹•ÜÉÉ½È …±¥‰É…Ñ¥½¸ÁÉ½‰”Ñ¥µ•½ÕĞ¸UÁ±½…Ñ¡”ÕÉÉ•¹Ğ9…¹¼Í­•Ñ °Ñ¡•¸É•½¹¹•Ğ¸œ¤¤ì(€€€ô°MQQ%9L¹…±¥‰É…Ñ¥½¹Q¥µ•½ÕÑ5¥±±¥Í•½¹‘Ì¤ì(€€€Á•¹‘¥¹…±¥‰É…Ñ¥½¸€ôì¹½¹”°Í•¹ÑĞ°Ñ¥µ•½ÕĞ°É•Í½±Ù”°É•©•Ğôì(€€€Í•¹‘1¥¹”¡A%9°‘í¹½¹•õq¹€¤¹…Ñ ¡•ÉÉ½È€ôøì(€€€€€±•…ÉQ¥µ•½ÕĞ¡Ñ¥µ•½ÕĞ¤ì(€€€€€Á•¹‘¥¹…±¥‰É…Ñ¥½¸€ô¹Õ±°ì(€€€€€É•©•Ğ¡•ÉÉ½È¤ì(€€€ô¤ì(€ô¤ì)ô()…Íå¹Œ™Õ¹Ñ¥½¸…±¥‰É…Ñ•1¥¹¬ ¤ì(€½¹ÍĞ½¹•]…å•±…åÌ€ômtì(€™½È€¡±•ĞÍ…µÁ±”€ô€ÀìÍ…µÁ±”€ğMQQ%9L¹…±¥‰É…Ñ¥½¹M…µÁ±•ÌìÍ…µÁ±”€¬ô€Ä¤ì(€€€½¹ÍĞÉ•ÍÕ±Ğ€ô…İ…¥Ğµ•…ÍÕÉ•=¹•]…å•±…ä ¤ì(€€€½¹•]…å•±…åÌ¹ÁÕÍ ¡É•ÍÕ±Ğ¹É½Õ¹‘QÉ¥Á5Ì€¼€È¤ì(€€€…‘‘1½œ¡…±¥‰É…Ñ¥½¸€‘íÍ…µÁ±”€¬€Åô¼‘íMQQ%9L¹…±¥‰É…Ñ¥½¹M…µÁ±•Íôè€‘ì¡É•ÍÕ±Ğ¹É½Õ¹‘QÉ¥Á5Ì€¼€È¤¹Ñ½¥á• È¥ôµÌ½¹”µİ…ä•ÍÑ¥µ…Ñ•€¤ì(€ô(€…±¥‰É…Ñ¥½¹M…µÁ±•Ì€ô½¹•]…å•±…åÌì(€±¥¹­•±…å5Ì€ô½¹•]…å•±…åÌ¹É•‘Õ” ¡ÍÕ´°Ù…±Õ”¤€ôøÍÕ´€¬Ù…±Õ”°€À¤€¼½¹•]…å•±…åÌ¹±•¹Ñ ì(€…‘‘1½œ¡…Ù•É…”±¥¹¬‘•±…äè€‘í±¥¹­•±…å5Ì¹Ñ½¥á• È¥ôµÍ€¤ì)ô()…Íå¹Œ™Õ¹Ñ¥½¸‘¥Í½¹¹•ÑÉ‘Õ¥¹¼¡Í¡½İMÑ…Ñ”€ôÑÉÕ”¤ì(€±½Í¥¹œ€ôÑÉÕ”ì(€¥˜€¡Á•¹‘¥¹…±¥‰É…Ñ¥½¸¤ì(€€€±•…ÉQ¥µ•½ÕĞ¡Á•¹‘¥¹…±¥‰É…Ñ¥½¸¹Ñ¥µ•½ÕĞ¤ì(€€€Á•¹‘¥¹…±¥‰É…Ñ¥½¸¹É•©•Ğ¡¹•ÜÉÉ½È …±¥‰É…Ñ¥½¸ÍÑ½ÁÁ•‰•…ÕÍ”Ñ¡”É‘Õ¥¹¼‘¥Í½¹¹•Ñ•¸œ¤¤ì(€€€Á•¹‘¥¹…±¥‰É…Ñ¥½¸€ô¹Õ±°ì(€ô(€ÑÉäì…İ…¥ĞÉ•…‘•Èü¹…¹•° ¤ìô…Ñ íôÑÉäìÉ•…‘•Èü¹É•±•…Í•1½¬ ¤ìô…Ñ íôÉ•…‘•È€ô¹Õ±°ì(€ÑÉäìİÉ¥Ñ•Èü¹É•±•…Í•1½¬ ¤ìô…Ñ íôİÉ¥Ñ•È€ô¹Õ±°ì(€ÑÉäì…İ…¥ĞÍ•É¥…±A½ÉĞü¹±½Í” ¤ìô…Ñ íôÍ•É¥…±A½ÉĞ€ô¹Õ±°ì(€Í•É¥…±	Õ™™•È€ô€œœì‰ÕÑÑ½¹½İ¸€ô™…±Í”ì(€¥˜€¡Í¡½İMÑ…Ñ”¤Í•ÑMÑ…Ñ” ‘¥Í½¹¹•Ñ•œ¤ì)ô()…Íå¹Œ™Õ¹Ñ¥½¸ÍÑ…ÉÑQÉ¥…° ¤ì(€¥˜€ …lÉ•…‘äœ°€É•ÍÕ±Ğœ°€™…±Í”µÍÑ…ÉĞt¹¥¹±Õ‘•Ì¡ÍÑ…Ñ”¤ñğ‰ÕÑÑ½¹½İ¸¤É•ÑÕÉ¸ì(€ÍÑ¥µÕ±ÕÍQ¥µ”€ô¹Õ±°ìÍ•ÑMÑ…Ñ” İ…¥Ñ¥¹œœ¤ì(€½¹ÍĞ‘•±…ä€ôMQQ%9L¹µ¥¹¥µÕµ]…¥Ñ5¥±±¥Í•½¹‘Ì€¬5…Ñ ¹É…¹‘½´ ¤€¨€¡MQQ%9L¹µ…á¥µÕµ]…¥Ñ5¥±±¥Í•½¹‘Ì€´MQQ%9L¹µ¥¹¥µÕµ]…¥Ñ5¥±±¥Í•½¹‘Ì¤ì(€İ…¥ÑQ¥µ•È€ôÍ•ÑQ¥µ•½ÕĞ  ¤€ôøì(€€€¥˜€¡ÍÑ…Ñ”€„ôô€İ…¥Ñ¥¹œœ¤É•ÑÕÉ¸ì(€€€Í•ÑMÑ…Ñ” ¼œ¤ì(€€€Á…¥¹ÑÉ…µ”€ôÉ•ÅÕ•ÍÑ¹¥µ…Ñ¥½¹É…µ”  ¤€ôøì(€€€€€¥˜€¡ÍÑ…Ñ”€ôôô€¼œ¤ìÍÑ¥µÕ±ÕÍQ¥µ”€ôÁ•É™½Éµ…¹”¹¹½Ü ¤ì…‘‘1½œ¡<Á…¥¹ĞÑ¥µ•ÍÑ…µÀ€‘íÍÑ¥µÕ±ÕÍQ¥µ”¹Ñ½¥á• Ì¥ôµÍ€¤ìô(€€€ô¤ì(€ô°‘•±…ä¤ì)ô()™Õ¹Ñ¥½¸ÕÍ•M¥µÕ±…Ñ½È ¤ìÙ½¥‘¥Í½¹¹•ÑÉ‘Õ¥¹¼¡™…±Í”¤ìÍ½ÕÉ”€ô€Í¥µÕ±…Ñ½Èœì‰ÕÑÑ½¹½İ¸€ô™…±Í”ì±¥¹­•±…å5Ì€ô¹Õ±°ì…±¥‰É…Ñ¥½¹M…µÁ±•Ì€ômtìÍ•ÑMÑ…Ñ” É•…‘äœ¤ìô()™Õ¹Ñ¥½¸•áÁ½ÉÑÍØ ¤ì(€½¹ÍĞ­•åÌ€ôlÑÉ¥…±9Õµ‰•Èœ°€É•…Ñ¥½¹Q¥µ•5Ìœ°€É…İI•…Ñ¥½¹Q¥µ•5Ìœ°€±¥¹­•±…å5Ìœ°€™…±Í•MÑ…ÉĞœ°€‰É½İÍ•ÉMÑ¥µÕ±ÕÍQ¥µ•ÍÑ…µÁ5Ìœ°€‰É½İÍ•ÉAÉ•ÍÍI••¥Ù•‘Q¥µ•ÍÑ…µÁ5Ìœ°€…É‘Õ¥¹½AÉ•ÍÍ5¥É½Ìœ°€‘…Ñ•Q¥µ”œ°€Í½ÕÉ”œ°€Ù…±¥œ°€¥¹Ù…±¥‘I•…Í½¸tì(€½¹ÍĞ¡•…‘•ÉÌ€ôlÑÉ¥…±}¹Õµ‰•Èœ°€É•…Ñ¥½¹}Ñ¥µ•}µÍ}½ÉÉ•Ñ•œ°€É•…Ñ¥½¹}Ñ¥µ•}µÍ}É…Üœ°€•ÍÑ¥µ…Ñ•‘}±¥¹­}‘•±…å}µÌœ°€™…±Í•}ÍÑ…ÉĞœ°€‰É½İÍ•É}ÍÑ¥µÕ±ÕÍ}Ñ¥µ•ÍÑ…µÁ}µÌœ°€‰É½İÍ•É}ÁÉ•ÍÍ}É••¥Ù•‘}Ñ¥µ•ÍÑ…µÁ}µÌœ°€…É‘Õ¥¹½}ÁÉ•ÍÍ}µ¥É½Ìœ°€‘…Ñ•}Ñ¥µ”œ°€Í½ÕÉ”œ°€Ù…±¥œ°€¥¹Ù…±¥‘}É•…Í½¸tì(€½¹ÍĞÅÕ½Ñ”€ôÙ…±Õ”€ôø€ˆ‘íMÑÉ¥¹œ¡Ù…±Õ”€üü€œœ¤¹É•Á±…•±° œˆœ°€œˆˆœ¥ô‰€ì(€½¹ÍĞÍØ€ôm¡•…‘•ÉÌ°€¸¸¹ÑÉ¥…±I•ÍÕ±ÑÌ¹µ…À¡É½Ü€ôø­•åÌ¹µ…À¡­•ä€ôøÉ½İm­•åt¤¥t¹µ…À¡É½Ü€ôøÉ½Ü¹µ…À¡ÅÕ½Ñ”¤¹©½¥¸ œ°œ¤¤¹©½¥¸ qÉq¸œ¤ì(€½¹ÍĞÕÉ°€ôUI0¹É•…Ñ•=‰©•ÑUI0¡¹•Ü	±½ˆ¡mÍÙt°ìÑåÁ”è€Ñ•áĞ½ÍØœô¤¤ì(€½¹ÍĞ±¥¹¬€ô‘½Õµ•¹Ğ¹É•…Ñ•±•µ•¹Ğ „œ¤ì±¥¹¬¹¡É•˜€ôÕÉ°ì±¥¹¬¹‘½İ¹±½…€ôÉ•…Ñ¥½¸µÑ¥µ•Ì´‘í¹•Ü…Ñ” ¤¹Ñ½%M=MÑÉ¥¹œ ¤¹É•Á±…•±° œèœ°€œ´œ¥ô¹ÍÙ€ì±¥¹¬¹±¥¬ ¤ìUI0¹É•Ù½­•=‰©•ÑUI0¡ÕÉ°¤ì)ô()•áÁ½ÉÑ	ÕÑÑ½¸¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ±¥¬œ°•áÁ½ÉÑÍØ¤ì)±•…É	ÕÑÑ½¸¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ±¥¬œ°€ ¤€ôøìÑÉ¥…±I•ÍÕ±ÑÌ€ômtìÉ•¹‘•È ¤ìô¤ì)‘¥Í½¹¹•Ñ	ÕÑÑ½¸¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ±¥¬œ°€ ¤€ôø‘¥Í½¹¹•ÑÉ‘Õ¥¹¼ ¤¤ì)µ½‘•	ÕÑÑ½¸¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ±¥¬œ°€ ¤€ôøìÍ½ÕÉ”€ô€¡…É‘İ…É”œìÍ•ÑMÑ…Ñ” ‘¥Í½¹¹•Ñ•œ¤ìô¤ì)İ¥¹‘½Ü¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ­•å‘½İ¸œ°•Ù•¹Ğ€ôøì(€¥˜€¡Í½ÕÉ”€ôôô€Í¥µÕ±…Ñ½Èœ€˜˜•Ù•¹Ğ¹½‘”€ôôô€MÁ…”œ€˜˜€…•Ù•¹Ğ¹É•Á•…Ğ€˜˜€…l	UQQ=8œ°€%9AUPœ°€QaQIt¹¥¹±Õ‘•Ì¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ñ…9…µ”¤¤ì•Ù•¹Ğ¹ÁÉ•Ù•¹Ñ•™…Õ±Ğ ¤ìÉ••¥Ù•‘AÉ•ÍÌ¡¹Õ±°¤ìô)ô¤ì)İ¥¹‘½Ü¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ­•åÕÀœ°•Ù•¹Ğ€ôøì¥˜€¡Í½ÕÉ”€ôôô€Í¥µÕ±…Ñ½Èœ€˜˜•Ù•¹Ğ¹½‘”€ôôô€MÁ…”œ¤ì‰ÕÑÑ½¹½İ¸€ô™…±Í”ìÉ•¹‘•È ¤ìôô¤ì)™Õ¹Ñ¥½¸¥¹Ù…±¥‘…Ñ•!¥‘‘•¸ ¤ì¥˜€ ¡‘½Õµ•¹Ğ¹¡¥‘‘•¸ñğ€…‘½Õµ•¹Ğ¹¡…Í½ÕÌ ¤¤€˜˜lİ…¥Ñ¥¹œœ°€¼t¹¥¹±Õ‘•Ì¡ÍÑ…Ñ”¤¤™…¥° QÉ¥…°¥¹Ù…±¥‘…Ñ•‰•…ÕÍ”Ñ¡¥ÌÁ…”±½ÍĞ™½ÕÌ¸œ°ÑÉÕ”¤ìô)‘½Õµ•¹Ğ¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È Ù¥Í¥‰¥±¥Ñå¡…¹”œ°¥¹Ù…±¥‘…Ñ•!¥‘‘•¸¤ì)İ¥¹‘½Ü¹…‘‘Ù•¹Ñ1¥ÍÑ•¹•È ‰±ÕÈœ°¥¹Ù…±¥‘…Ñ•!¥‘‘•¸¤ì)É•¹‘•È ¤ì(

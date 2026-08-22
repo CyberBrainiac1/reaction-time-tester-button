@@ -43,8 +43,8 @@ PRESS,12345678
 RELEASE,12678123
 ```
 
-`PRESS` is sent immediately when the switch first goes LOW. A 5 ms stable-release check prevents switch bounce from making duplicate presses.
+`PRESS` is sent immediately when the switch first goes LOW. A 5 ms stable-release check prevents switch bounce from making duplicate presses. After connection, the website sends twelve `PING,<number>` probes and the Nano immediately returns `PONG,<number>,<micros>` for each one.
 
 ## Timing note
 
-The displayed reaction time measures the browser's GO paint opportunity to the received serial press message. USB/driver scheduling, browser scheduling, monitor refresh, and display latency create unavoidable uncertainty. The Arduino timestamp is saved for diagnostics but is not directly subtracted from the browser clock.
+After connecting, the website averages twelve round-trip probes and uses half of that average as the Nano-to-browser link-delay estimate. It subtracts that number from every reaction time and saves both the raw and corrected values in the CSV. USB and browser scheduling are not perfectly symmetric, so this is a practical estimate—not laboratory-grade end-to-end timing calibration. Monitor/display latency remains outside this correction.
