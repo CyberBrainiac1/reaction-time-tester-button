@@ -8,11 +8,12 @@ Open the public website in desktop Chrome or Edge:
 
 https://cyberbrainiac1.github.io/reaction-time-tester-button/
 
-Click **Connect Arduino**, choose the Nano's COM port, then start a trial. No website installation is required.
+Click **Connect Arduino**, choose the Nano's COM port, then select a mode. No website installation is required. Each round is controlled only by the physical giant button: press once to start a reaction/CPS round, then use presses to play.
 
 Use the **CPS test** button to switch modes. It runs a five-second round, counts every complete physical press, and reports clicks per second. CPS results have their own session stats and CSV export.
 
-The same site also includes a standalone [Flappy Bird game](frontend/flappy-bird/). Use Space, click/tap the game, or connect the Nano on that page and press the giant button to flap.
+Use the **Flappy Bird** mode in the same dashboard to play with the giant button. There are no keyboard, click, or touch controls for gameplay.
+It is adapted from the Apache-2.0 [Floppy Bird project by Nebez Briefkani](https://github.com/nebez/floppybird), with original Canvas visuals and no external game assets.
 
 ## Wiring
 

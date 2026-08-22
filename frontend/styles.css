@@ -5,8 +5,6 @@ body { margin: 0; min-width: 320px; min-height: 100vh; }
 button { font: inherit; color: inherit; background: #1b1e22; border: 1px solid #444; border-radius: 999px; padding: .8rem 1.1rem; cursor: pointer; }
 button:hover:not(:disabled) { border-color: #ffd43b; }
 button:disabled { opacity: .4; cursor: not-allowed; }
-.game-link { color: #ffd43b; display: inline-block; font-size: .85rem; font-weight: bold; margin-top: .8rem; text-decoration: none; }
-.game-link:hover { text-decoration: underline; }
 #app { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 330px; grid-template-rows: 70px 1fr; background: #101214; }
 #app[data-state="go"] { color: #071000; background: #b8ff31; }
 #app[data-state="false-start"] { color: #101214; background: #ff5b49; }
@@ -24,6 +22,7 @@ header i { display: inline-block; width: 9px; height: 9px; margin-right: 8px; bo
 .primary { color: #101214; background: #ffd43b; border-color: #ffd43b; font-weight: bold; padding: 1rem 1.5rem; }
 .button-row { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1rem 0; }
 .hint { color: #7f8791; font-size: .8rem; }
+.flappy-game { background: #77c9ee; border: 3px solid #f7f3e9; border-radius: 18px; display: block; height: auto; max-height: 66vh; max-width: min(100%, 450px); width: auto; }
 aside { grid-column: 2; grid-row: 2; padding: 2rem; overflow: auto; color: #f7f3e9; background: #101214ee; border-left: 1px solid #333; }
 aside h2 { font-size: 1rem; letter-spacing: .12em; text-transform: uppercase; }
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 1.5rem 0; background: #333; border: 1px solid #333; }
