@@ -10,6 +10,8 @@ https://cyberbrainiac1.github.io/reaction-time-tester-button/
 
 Click **Connect Arduino**, choose the Nano's COM port, then start a trial. No website installation is required.
 
+Use the **CPS test** button to switch modes. It runs a five-second round, counts every complete physical press, and reports clicks per second. CPS results have their own session stats and CSV export.
+
 ## Wiring
 
 ```text
