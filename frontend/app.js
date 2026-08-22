@@ -85,25 +85,27 @@ function render() {
   } else if (state === 'connecting') {
     stage.innerHTML = page('CONNECTING', 'Finding the<br>giant button…', 'Select the Nano’s COM port. It may reset once connected.');
   } else if (testMode === 'flappy' && state === 'ready') {
-    stage.innerHTML = '<p class="eyebrow">FLAPPY BIRD</p><h1>Button<br>Bird</h1><p>Press the giant button to start and flap. Press again after a crash to restart.</p><canvas class="flappy-game" id="flappy-game" width="420" height="620" aria-label="Flappy Bird controlled by the giant button"></canvas>';
+    stage.innerHTML = '<p class="eyebrow">FLAPPY BIRD</p><h1>Button<br>Bird</h1><p>Ready? Press the giant button to start. Every later press makes the bird flap.</p><canvas class="flappy-game" id="flappy-game" width="420" height="620" aria-label="Flappy Bird controlled by the giant button"></canvas>';
     startFlappy();
   } else if (state === 'ready') {
     stage.innerHTML = testMode === 'cps'
-      ? page('CPS TEST', 'How fast can<br>you press?', `Press the giant button once to start, then press as many times as you can in ${SETTINGS.cpsDurationSeconds} seconds.`)
-      : page('REACTION TIME', 'Fast hands?', 'Press the giant button once to start. Release it, wait for green GO, then press again as fast as you can.');
+      ? page('CPS TEST', 'Ready to<br>start?', `Press the giant button to begin the ${SETTINGS.cpsDurationSeconds}-second test, then keep pressing as fast as you can.`)
+      : page('REACTION TIME', 'Ready to<br>start?', 'Press the giant button to begin. Release it, wait for green GO, then press again as fast as you can.');
   } else if (state === 'waiting') {
     stage.innerHTML = page('WAIT FOR IT', 'Hold<br>steady.', 'Pressing now is a false start.');
   } else if (state === 'go') {
     stage.innerHTML = '<h1 class="go">GO!</h1>';
   } else if (state === 'result') {
     const last = trialResults.at(-1);
-    stage.innerHTML = `<p class="eyebrow">REACTION TIME</p><h1 class="result">${Math.round(last.reactionTimeMs)}<small> ms</small></h1><p>Raw arrival: ${last.rawReactionTimeMs.toFixed(1)} ms · corrected by ${last.linkDelayMs.toFixed(2)} ms. Press the giant button to start again.</p>`;
+    stage.innerHTML = `<p class="eyebrow">DONE · REACTION TIME</p><h1 class="result">${Math.round(last.reactionTimeMs)}<small> ms</small></h1><p>Your corrected result. Raw arrival: ${last.rawReactionTimeMs.toFixed(1)} ms · link correction: ${last.linkDelayMs.toFixed(2)} ms. Press the giant button to start again.</p>`;
   } else if (state === 'cps-active') {
     const remaining = Math.max(0, (cpsEndsAt - performance.now()) / 1000);
     stage.innerHTML = `<p class="eyebrow">CPS TEST</p><h1 class="result">${cpsPresses}<small> clicks</small></h1><p>${remaining.toFixed(1)} seconds remaining · press as fast as you can</p>`;
   } else if (state === 'cps-result') {
     const last = cpsResults.at(-1);
-    stage.innerHTML = `<p class="eyebrow">CPS RESULT</p><h1 class="result">${last.cps.toFixed(1)}<small> CPS</small></h1><p>${last.clicks} clicks in ${last.durationSeconds} seconds. Press the giant button to start again.</p>`;
+    const average = cpsResults.reduce((sum, row) => sum + row.cps, 0) / cpsResults.length;
+    const best = Math.max(...cpsResults.map(row => row.cps));
+    stage.innerHTML = `<p class="eyebrow">DONE · CPS SUMMARY</p><h1 class="result">${last.cps.toFixed(1)}<small> CPS</small></h1><p><b>${last.clicks} clicks</b> in ${last.durationSeconds} seconds · session average: ${average.toFixed(1)} CPS · best: ${best.toFixed(1)} CPS. Press the giant button to start again.</p>`;
   } else if (state === 'false-start') {
     stage.innerHTML = page('FALSE START', 'TOO<br>EARLY', 'Release the giant button, then press it once to start another attempt.');
   } else {
@@ -334,7 +336,7 @@ function drawFlappy() {
   flappyContext.save(); flappyContext.translate(flappyBird.x, flappyBird.y); flappyContext.rotate(flappyBird.rotation); flappyContext.fillStyle = '#ffd54e'; flappyContext.strokeStyle = '#8a5629'; flappyContext.lineWidth = 3; flappyContext.beginPath(); flappyContext.ellipse(0, 0, 22, 17, 0, 0, Math.PI * 2); flappyContext.fill(); flappyContext.stroke(); flappyContext.fillStyle = '#fff'; flappyContext.beginPath(); flappyContext.arc(8, -6, 7, 0, Math.PI * 2); flappyContext.fill(); flappyContext.stroke(); flappyContext.fillStyle = '#1a3340'; flappyContext.beginPath(); flappyContext.arc(10, -6, 2.5, 0, Math.PI * 2); flappyContext.fill(); flappyContext.fillStyle = '#f36d3d'; flappyContext.beginPath(); flappyContext.moveTo(20, 1); flappyContext.lineTo(36, 7); flappyContext.lineTo(20, 12); flappyContext.closePath(); flappyContext.fill(); flappyContext.restore();
   flappyText(String(flappyScore), 72, 48);
   if (flappyState === 'ready') { flappyText('PRESS BUTTON TO START', 245, 21, '#17354a'); }
-  if (flappyState === 'game-over') { flappyContext.fillStyle = 'rgba(255,255,255,.9)'; flappyContext.fillRect(45, 185, 330, 175); flappyText('GAME OVER', 235, 30, '#f06a3d'); flappyText(`SCORE ${flappyScore}`, 280, 20, '#17354a'); flappyText(`BEST ${flappyBest}`, 315, 18, '#17354a'); flappyText('PRESS BUTTON TO RESTART', 340, 13, '#17354a'); }
+  if (flappyState === 'game-over') { flappyContext.fillStyle = 'rgba(255,255,255,.9)'; flappyContext.fillRect(45, 185, 330, 175); flappyText('DONE', 225, 30, '#f06a3d'); flappyText(`SCORE ${flappyScore}`, 270, 20, '#17354a'); flappyText(`BEST ${flappyBest}`, 305, 18, '#17354a'); flappyText('PRESS BUTTON TO START AGAIN', 340, 13, '#17354a'); }
 }
 
 exportButton.addEventListener('click', exportCsv);
