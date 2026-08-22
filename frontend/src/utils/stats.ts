@@ -1,0 +1,3 @@
+import type { TrialResult } from '../types'
+export function stats(results:TrialResult[]) { const xs=results.filter(r=>r.valid&&!r.falseStart&&r.reactionTimeMs!==null).map(r=>r.reactionTimeMs as number); if(!xs.length)return null; const sorted=[...xs].sort((a,b)=>a-b); const average=xs.reduce((a,b)=>a+b,0)/xs.length; const median=sorted.length%2?sorted[(sorted.length-1)/2]:(sorted[sorted.length/2-1]+sorted[sorted.length/2])/2; const sd=xs.length>1?Math.sqrt(xs.reduce((sum,x)=>sum+(x-average)**2,0)/(xs.length-1)):null; return { count:xs.length, average, median, fastest:sorted[0], slowest:sorted.at(-1)!, sd } }
+
